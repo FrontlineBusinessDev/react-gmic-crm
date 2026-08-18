@@ -2,6 +2,12 @@ import type { ServiceCatalogItem } from "@/types";
 
 export const mockServiceCatalog: ServiceCatalogItem[] = [
   {
+    id: "svc-006",
+    name: "Installation",
+    description: "Full installation of a new HVAC/aircon unit, including mounting, piping, and electrical connection.",
+    samplePrice: 18500,
+  },
+  {
     id: "svc-001",
     name: "Survey",
     description: "On-site assessment of the space and existing setup to recommend unit type, capacity, and placement before installation.",

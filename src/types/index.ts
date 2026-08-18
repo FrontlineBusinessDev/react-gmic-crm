@@ -147,6 +147,32 @@ export interface SerializedStockUnit {
   status: "in_stock" | "reserved" | "installed";
 }
 
+// ---------- Reorder Requests ----------
+
+export type ReorderRequestStatus = "requested" | "ordered" | "delivered" | "cancelled";
+
+export interface DeliveryProof {
+  url: string; // local object URL — mock only, not actually uploaded anywhere
+  name: string;
+  type: string; // mime type
+}
+
+export interface ReorderRequest {
+  id: string;
+  inventoryItemId: string;
+  itemName: string; // snapshot at request time
+  sku: string; // snapshot at request time
+  supplier: string; // snapshot at request time, matches Supplier.name
+  quantityRequested: number;
+  status: ReorderRequestStatus;
+  requestedAt: string;
+  requestedBy: string;
+  orderedAt?: string;
+  deliveredAt?: string;
+  deliveryProof?: DeliveryProof;
+  notes?: string;
+}
+
 // ---------- Service Catalog ----------
 
 export type ServiceCatalogStatus = "active" | "archived";
@@ -177,6 +203,7 @@ export interface ScheduleJob {
   address: string;
   unitId?: string;
   notes: string;
+  serviceId?: string; // ServiceCatalogItem.id used to build the title
 }
 
 // ---------- Billing ----------
@@ -192,6 +219,15 @@ export interface InvoiceLineItem {
   sourceId?: string; // InventoryItem.id or ServiceCatalogItem.id
 }
 
+export interface PaymentRecord {
+  id: string;
+  date: string;
+  amount: number;
+  proofUrl?: string;
+  proofFileName?: string;
+  paidWithoutProof?: boolean;
+}
+
 export interface Invoice {
   id: string;
   invoiceNumber: string;
@@ -203,6 +239,7 @@ export interface Invoice {
   amountPaid: number;
   status: InvoiceStatus;
   relatedUnitId?: string;
+  payments?: PaymentRecord[];
 }
 
 // ---------- Activity feed ----------
@@ -236,7 +273,7 @@ export interface NotificationItem {
 // ---------- Audit trail ----------
 
 export type AuditAction = "create" | "update" | "archive" | "restore" | "delete";
-export type AuditModule = "client" | "inventory" | "serviceCatalog" | "invoice" | "schedule" | "supplier" | "user" | "role";
+export type AuditModule = "client" | "inventory" | "serviceCatalog" | "invoice" | "schedule" | "supplier" | "user" | "role" | "reorderRequest";
 
 export interface AuditFieldChange {
   field: string;

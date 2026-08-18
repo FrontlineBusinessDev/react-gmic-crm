@@ -1,8 +1,42 @@
 import * as React from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
-const Tabs = TabsPrimitive.Root;
+const TabsActiveContext = React.createContext<{ value: string; id: string } | null>(null);
+
+const Tabs = React.forwardRef<
+  React.ElementRef<typeof TabsPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Root>
+>(({ value, defaultValue, onValueChange, ...props }, ref) => {
+  const id = React.useId();
+  const [activeValue, setActiveValue] = React.useState<string | undefined>(value ?? defaultValue);
+
+  React.useEffect(() => {
+    if (value !== undefined) setActiveValue(value);
+  }, [value]);
+
+  const handleValueChange = React.useCallback(
+    (v: string) => {
+      setActiveValue(v);
+      onValueChange?.(v);
+    },
+    [onValueChange]
+  );
+
+  return (
+    <TabsActiveContext.Provider value={{ value: activeValue ?? "", id }}>
+      <TabsPrimitive.Root
+        ref={ref}
+        value={value}
+        defaultValue={defaultValue}
+        onValueChange={handleValueChange}
+        {...props}
+      />
+    </TabsActiveContext.Provider>
+  );
+});
+Tabs.displayName = TabsPrimitive.Root.displayName;
 
 const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
@@ -22,27 +56,46 @@ TabsList.displayName = TabsPrimitive.List.displayName;
 const TabsTrigger = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>
->(({ className, ...props }, ref) => (
-  <TabsPrimitive.Trigger
-    ref={ref}
-    className={cn(
-      "inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all focus-visible:outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=active]:bg-white data-[state=active]:text-ink-900 data-[state=active]:shadow-sm",
-      className
-    )}
-    {...props}
-  />
-));
+>(({ className, value, children, ...props }, ref) => {
+  const ctx = React.useContext(TabsActiveContext);
+  const isActive = ctx?.value === value;
+
+  return (
+    <TabsPrimitive.Trigger
+      ref={ref}
+      value={value}
+      className={cn(
+        "relative inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-colors focus-visible:outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=active]:text-ink-900",
+        className
+      )}
+      {...props}
+    >
+      {isActive && (
+        <motion.div
+          layoutId={ctx ? `${ctx.id}-active-tab-pill` : undefined}
+          className="absolute inset-0 rounded-md bg-white shadow-sm"
+          transition={{ type: "spring", stiffness: 400, damping: 32 }}
+        />
+      )}
+      <span className="relative z-10 inline-flex items-center gap-1.5">{children}</span>
+    </TabsPrimitive.Trigger>
+  );
+});
 TabsTrigger.displayName = TabsPrimitive.Trigger.displayName;
 
 const TabsContent = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>
->(({ className, ...props }, ref) => (
-  <TabsPrimitive.Content
-    ref={ref}
-    className={cn("mt-4 focus-visible:outline-none", className)}
-    {...props}
-  />
+>(({ className, children, ...props }, ref) => (
+  <TabsPrimitive.Content ref={ref} className={cn("mt-4 focus-visible:outline-none", className)} {...props}>
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
+    >
+      {children}
+    </motion.div>
+  </TabsPrimitive.Content>
 ));
 TabsContent.displayName = TabsPrimitive.Content.displayName;
 

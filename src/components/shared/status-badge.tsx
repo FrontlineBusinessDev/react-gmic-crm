@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import type { LeadStage, UnitStatus, InvoiceStatus, JobStatus, ClientStatus, InventoryStatus, ServiceCatalogStatus, SupplierStatus, UserStatus, RoleStatus } from "@/types";
+import type { LeadStage, UnitStatus, InvoiceStatus, JobStatus, ClientStatus, InventoryStatus, ServiceCatalogStatus, SupplierStatus, UserStatus, RoleStatus, ReorderRequestStatus } from "@/types";
 
 const leadStageMap: Record<LeadStage, { label: string; variant: "secondary" | "info" | "warning" | "success" | "destructive" }> = {
   inquiry: { label: "Inquiry", variant: "secondary" },
@@ -51,6 +51,13 @@ const serviceCatalogStatusMap: Record<ServiceCatalogStatus, { label: string; var
 const supplierStatusMap: Record<SupplierStatus, { label: string; variant: "secondary" | "info" | "warning" | "success" | "destructive" }> = {
   active: { label: "Active", variant: "success" },
   archived: { label: "Archived", variant: "secondary" },
+};
+
+const reorderRequestStatusMap: Record<ReorderRequestStatus, { label: string; variant: "secondary" | "info" | "warning" | "success" | "destructive" }> = {
+  requested: { label: "Requested", variant: "info" },
+  ordered: { label: "Ordered", variant: "warning" },
+  delivered: { label: "Delivered", variant: "success" },
+  cancelled: { label: "Cancelled", variant: "destructive" },
 };
 
 const userStatusMap: Record<UserStatus, { label: string; variant: "secondary" | "info" | "warning" | "success" | "destructive" }> = {
@@ -112,5 +119,10 @@ export function ServiceCatalogStatusBadge({ status }: { status: ServiceCatalogSt
 
 export function SupplierStatusBadge({ status }: { status: SupplierStatus }) {
   const { label, variant } = supplierStatusMap[status];
+  return <Badge variant={variant}>{label}</Badge>;
+}
+
+export function ReorderRequestStatusBadge({ status }: { status: ReorderRequestStatus }) {
+  const { label, variant } = reorderRequestStatusMap[status];
   return <Badge variant={variant}>{label}</Badge>;
 }

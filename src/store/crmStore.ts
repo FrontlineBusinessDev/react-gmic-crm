@@ -6,6 +6,7 @@ import type {
   InventoryItem,
   ScheduleJob,
   Invoice,
+  PaymentRecord,
   ActivityItem,
   Unit,
   SurveyReport,
@@ -17,6 +18,8 @@ import type {
   User,
   Role,
   RoleDefinition,
+  ReorderRequest,
+  DeliveryProof,
 } from "@/types";
 import { mockClients } from "@/data/clients";
 import { mockLeads } from "@/data/leads";
@@ -28,7 +31,9 @@ import { mockServiceCatalog } from "@/data/serviceCatalog";
 import { mockSuppliers } from "@/data/suppliers";
 import { mockUsers } from "@/data/users";
 import { mockRoles } from "@/data/roles";
+import { mockReorderRequests } from "@/data/reorderRequests";
 import { addMonthsIso } from "@/lib/utils";
+import { useNotificationStore } from "@/store/notificationStore";
 
 let idCounter = 1000;
 function nextId(prefix: string) {
@@ -60,6 +65,15 @@ const INSTALLATION_WARRANTY_MONTHS = 12;
 const PMS_FOLLOWUP_MONTHS = 3;
 const DEFAULT_INSTALLATION_PRICE = 18500;
 
+function formatInvoiceNumber(format: string, seq: number) {
+  const now = new Date();
+  return format
+    .replace(/{YYYY}/g, String(now.getFullYear()))
+    .replace(/{YY}/g, String(now.getFullYear()).slice(-2))
+    .replace(/{MM}/g, String(now.getMonth() + 1).padStart(2, "0"))
+    .replace(/{seq}/g, String(seq).padStart(3, "0"));
+}
+
 export interface InstallationOutcome {
   invoiceNumber: string;
   warrantyExpiresOn: string;
@@ -72,12 +86,14 @@ interface CrmState {
   inventory: InventoryItem[];
   schedule: ScheduleJob[];
   invoices: Invoice[];
+  invoiceNumberFormat: string;
   activity: ActivityItem[];
   serviceCatalog: ServiceCatalogItem[];
   suppliers: Supplier[];
   users: User[];
   roles: RoleDefinition[];
   auditLog: AuditLogEntry[];
+  reorderRequests: ReorderRequest[];
 
   // Audit
   logAudit: (entry: Omit<AuditLogEntry, "id" | "timestamp">) => void;
@@ -107,6 +123,12 @@ interface CrmState {
   archiveInventoryItem: (id: string) => void;
   restoreInventoryItem: (id: string) => void;
 
+  // Reorder Requests
+  addReorderRequest: (input: { inventoryItemId: string; quantityRequested: number; notes?: string }) => void;
+  markReorderOrdered: (id: string) => void;
+  markReorderDelivered: (id: string, proof?: DeliveryProof) => void;
+  cancelReorderRequest: (id: string, cancelledVia: "email" | "phone", note?: string) => void;
+
   // Suppliers
   addSupplier: (supplier: Omit<Supplier, "id">) => void;
   updateSupplier: (id: string, updates: Partial<Omit<Supplier, "id">>) => void;
@@ -133,11 +155,15 @@ interface CrmState {
 
   // Schedule
   addJob: (job: Omit<ScheduleJob, "id">) => void;
+  updateJob: (jobId: string, updates: Omit<ScheduleJob, "id">) => void;
   updateJobStatus: (jobId: string, status: JobStatus) => InstallationOutcome | undefined;
+  deleteJob: (jobId: string) => void;
 
   // Billing
-  addInvoice: (invoice: Omit<Invoice, "id" | "invoiceNumber">) => void;
-  recordPayment: (invoiceId: string, amount: number) => void;
+  addInvoice: (invoice: Omit<Invoice, "id" | "invoiceNumber"> & { invoiceNumber?: string }) => void;
+  recordPayment: (invoiceId: string, amount: number, proof?: { url?: string; fileName?: string; paidWithoutProof?: boolean }) => void;
+  setInvoiceNumberFormat: (format: string) => void;
+  previewNextInvoiceNumber: () => string;
 
   // Activity
   logActivity: (item: Omit<ActivityItem, "id" | "timestamp">) => void;
@@ -156,12 +182,14 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   inventory: mockInventory,
   schedule: mockSchedule,
   invoices: mockInvoices,
+  invoiceNumberFormat: "GMIC-{YYYY}-{seq}",
   activity: mockActivity,
   serviceCatalog: mockServiceCatalog,
   suppliers: mockSuppliers,
   users: mockUsers,
   roles: mockRoles,
   auditLog: [],
+  reorderRequests: mockReorderRequests,
 
   logAudit: (entry) => {
     const newEntry: AuditLogEntry = { ...entry, id: nextId("aud"), timestamp: new Date().toISOString() };
@@ -172,8 +200,8 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     const newLead: Lead = {
       ...lead,
       id: nextId("ld"),
-      createdAt: new Date().toISOString().slice(0, 10),
-      updatedAt: new Date().toISOString().slice(0, 10),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
     set((s) => ({ leads: [newLead, ...s.leads] }));
     get().logActivity({
@@ -187,7 +215,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     set((s) => ({
       leads: s.leads.map((l) =>
         l.id === leadId
-          ? { ...l, stage, lostReason: stage === "lost" ? lostReason : undefined, updatedAt: new Date().toISOString().slice(0, 10) }
+          ? { ...l, stage, lostReason: stage === "lost" ? lostReason : undefined, updatedAt: new Date().toISOString() }
           : l
       ),
     }));
@@ -231,7 +259,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       tags: ["Converted Lead"],
     });
     set((s) => ({
-      leads: s.leads.map((l) => (l.id === leadId ? { ...l, stage: "won" as LeadStage } : l)),
+      leads: s.leads.map((l) => (l.id === leadId ? { ...l, stage: "won" as LeadStage, updatedAt: new Date().toISOString() } : l)),
     }));
     get().logActivity({
       type: "lead",
@@ -362,6 +390,94 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     if (!item) return;
     set((s) => ({ inventory: s.inventory.map((i) => (i.id === id ? { ...i, status: "active" } : i)) }));
     get().logAudit({ module: "inventory", entityId: id, entityLabel: item.name, action: "restore", changes: [], actor: "You" });
+  },
+
+  addReorderRequest: ({ inventoryItemId, quantityRequested, notes }) => {
+    const item = get().inventory.find((i) => i.id === inventoryItemId);
+    if (!item) return;
+    const id = nextId("ror");
+    const newRequest: ReorderRequest = {
+      id,
+      inventoryItemId,
+      itemName: item.name,
+      sku: item.sku,
+      supplier: item.supplier,
+      quantityRequested,
+      status: "requested",
+      requestedAt: new Date().toISOString(),
+      requestedBy: "You",
+      notes,
+    };
+    set((s) => ({ reorderRequests: [newRequest, ...s.reorderRequests] }));
+    get().logAudit({ module: "reorderRequest", entityId: id, entityLabel: item.name, action: "create", changes: [], actor: "You" });
+  },
+
+  markReorderOrdered: (id) => {
+    const req = get().reorderRequests.find((r) => r.id === id);
+    if (!req) return;
+    const orderedAt = new Date().toISOString();
+    set((s) => ({ reorderRequests: s.reorderRequests.map((r) => (r.id === id ? { ...r, status: "ordered", orderedAt } : r)) }));
+    get().logAudit({
+      module: "reorderRequest",
+      entityId: id,
+      entityLabel: req.itemName,
+      action: "update",
+      changes: [{ field: "status", oldValue: req.status, newValue: "ordered" }],
+      actor: "You",
+    });
+  },
+
+  markReorderDelivered: (id, proof) => {
+    const req = get().reorderRequests.find((r) => r.id === id);
+    if (!req) return;
+    const deliveredAt = new Date().toISOString();
+    set((s) => ({
+      reorderRequests: s.reorderRequests.map((r) => (r.id === id ? { ...r, status: "delivered", deliveredAt, deliveryProof: proof } : r)),
+    }));
+    get().logAudit({
+      module: "reorderRequest",
+      entityId: id,
+      entityLabel: req.itemName,
+      action: "update",
+      changes: [
+        { field: "status", oldValue: req.status, newValue: "delivered" },
+        { field: "deliveryProof", oldValue: null, newValue: proof ? proof.name : "No photo/invoice uploaded" },
+      ],
+      actor: "You",
+    });
+    const item = get().inventory.find((i) => i.id === req.inventoryItemId);
+    if (item) {
+      const newQty = item.quantityOnHand + req.quantityRequested;
+      set((s) => ({ inventory: s.inventory.map((i) => (i.id === item.id ? { ...i, quantityOnHand: newQty } : i)) }));
+      get().logAudit({
+        module: "inventory",
+        entityId: item.id,
+        entityLabel: item.name,
+        action: "update",
+        changes: [{ field: "quantityOnHand", oldValue: item.quantityOnHand, newValue: newQty }],
+        actor: "You",
+      });
+    }
+  },
+
+  cancelReorderRequest: (id, cancelledVia, note) => {
+    const req = get().reorderRequests.find((r) => r.id === id);
+    if (!req) return;
+    const combinedNotes = note ? [req.notes, note].filter(Boolean).join(" | ") : req.notes;
+    set((s) => ({
+      reorderRequests: s.reorderRequests.map((r) => (r.id === id ? { ...r, status: "cancelled", notes: combinedNotes } : r)),
+    }));
+    get().logAudit({
+      module: "reorderRequest",
+      entityId: id,
+      entityLabel: req.itemName,
+      action: "update",
+      changes: [
+        { field: "status", oldValue: req.status, newValue: "cancelled" },
+        { field: "cancelledVia", oldValue: null, newValue: cancelledVia },
+      ],
+      actor: "You",
+    });
   },
 
   addSupplier: (supplier) => {
@@ -531,6 +647,46 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     get().logAudit({ module: "schedule", entityId: id, entityLabel: job.title, action: "create", changes: [], actor: "You" });
   },
 
+  updateJob: (jobId, updates) => {
+    const before = get().schedule.find((j) => j.id === jobId);
+    if (!before) return;
+    const after: ScheduleJob = { ...before, ...updates, id: jobId };
+    set((s) => ({ schedule: s.schedule.map((j) => (j.id === jobId ? after : j)) }));
+
+    const changes = computeFieldDiff(before, after, [
+      "title",
+      "type",
+      "date",
+      "time",
+      "technicianId",
+      "clientId",
+      "clientName",
+      "address",
+      "notes",
+    ]);
+    get().logAudit({ module: "schedule", entityId: jobId, entityLabel: after.title, action: "update", changes, actor: "You" });
+
+    const reassigned = before.technicianId !== after.technicianId;
+    const techName = mockUsers.find((u) => u.id === after.technicianId)?.name ?? "the technician";
+    get().logActivity({
+      type: "note",
+      message: reassigned
+        ? `${after.title} reassigned to ${techName}`
+        : `${after.title} details updated`,
+      actor: "You",
+    });
+
+    useNotificationStore.getState().addNotification({
+      type: "schedule",
+      title: reassigned ? "Job reassigned to you" : "Job details updated",
+      message: reassigned
+        ? `${after.title} was reassigned to you — ${after.date} at ${after.time}`
+        : `${after.title} was updated — ${after.date} at ${after.time}`,
+      targetRoles: ["technician"],
+      userId: after.technicianId,
+    });
+  },
+
   updateJobStatus: (jobId, status) => {
     const before = get().schedule.find((j) => j.id === jobId);
     set((s) => ({ schedule: s.schedule.map((j) => (j.id === jobId ? { ...j, status } : j)) }));
@@ -586,10 +742,19 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     return undefined;
   },
 
+  deleteJob: (jobId) => {
+    const job = get().schedule.find((j) => j.id === jobId);
+    if (!job) return;
+    set((s) => ({ schedule: s.schedule.filter((j) => j.id !== jobId) }));
+    get().logActivity({ type: "note", message: `${job.title} removed from schedule`, actor: "You" });
+    get().logAudit({ module: "schedule", entityId: jobId, entityLabel: job.title, action: "delete", changes: [], actor: "You" });
+  },
+
   addInvoice: (invoice) => {
-    const num = `GMIC-2026-${String(idCounter + 1).padStart(3, "0")}`;
+    const { invoiceNumber: manualNumber, ...invoiceData } = invoice;
+    const num = manualNumber?.trim() || formatInvoiceNumber(get().invoiceNumberFormat, idCounter + 1);
     const id = nextId("inv");
-    const newInvoice: Invoice = { ...invoice, id, invoiceNumber: num };
+    const newInvoice: Invoice = { ...invoiceData, id, invoiceNumber: num };
     set((s) => ({ invoices: [newInvoice, ...s.invoices] }));
     for (const item of invoice.items) {
       if (item.kind === "unit" && item.sourceId) {
@@ -600,14 +765,35 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     get().logAudit({ module: "invoice", entityId: id, entityLabel: num, action: "create", changes: [], actor: "You" });
   },
 
-  recordPayment: (invoiceId, amount) => {
+  setInvoiceNumberFormat: (format) => {
+    set({ invoiceNumberFormat: format });
+  },
+
+  previewNextInvoiceNumber: () => {
+    return formatInvoiceNumber(get().invoiceNumberFormat, idCounter + 1);
+  },
+
+  recordPayment: (invoiceId, amount, proof) => {
+    const paymentRecord: PaymentRecord = {
+      id: nextId("pay"),
+      date: new Date().toISOString(),
+      amount,
+      proofUrl: proof?.url,
+      proofFileName: proof?.fileName,
+      paidWithoutProof: proof?.paidWithoutProof,
+    };
     set((s) => ({
       invoices: s.invoices.map((inv) => {
         if (inv.id !== invoiceId) return inv;
         const newPaid = inv.amountPaid + amount;
         const total = inv.items.reduce((sum, i) => sum + i.qty * i.unitPrice, 0);
         const status: Invoice["status"] = newPaid >= total ? "paid" : newPaid > 0 ? "partial" : "unpaid";
-        return { ...inv, amountPaid: newPaid, status };
+        return {
+          ...inv,
+          amountPaid: newPaid,
+          status,
+          payments: [...(inv.payments ?? []), paymentRecord],
+        };
       }),
     }));
     const inv = get().invoices.find((i) => i.id === invoiceId);

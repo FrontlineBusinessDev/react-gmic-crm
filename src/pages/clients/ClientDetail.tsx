@@ -11,6 +11,11 @@ import {
   History,
   Pencil,
   CalendarCheck,
+  Search,
+  ChevronDown,
+  X,
+  Download,
+  PhoneCall,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,14 +48,61 @@ import {
 } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
+import { FilterTransition } from "@/components/shared/filter-transition";
+import { Pagination } from "@/components/shared/pagination";
+import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { addMonthsIso, daysBetween, formatCurrency, formatDate } from "@/lib/utils";
-import type { Unit } from "@/types";
+import { exportInvoicePdf } from "@/lib/invoice-pdf";
+import type { Unit, UnitStatus, Invoice, InvoiceStatus } from "@/types";
 
 function warrantyInfo(unit: Unit) {
   const expiresOn = addMonthsIso(unit.installDate, unit.warrantyMonths);
   const daysLeft = daysBetween(new Date().toISOString().slice(0, 10), expiresOn);
   return { expiresOn, daysLeft, expired: daysLeft < 0 };
+}
+
+const unitStatusFilters: (UnitStatus | "all")[] = [
+  "all",
+  "active",
+  "under_warranty",
+  "warranty_expired",
+  "needs_service",
+];
+
+const unitStatusLabels: Record<UnitStatus, string> = {
+  active: "Active",
+  under_warranty: "Under Warranty",
+  warranty_expired: "Warranty Expired",
+  needs_service: "Needs Service",
+};
+
+const unitTypeFilters: (Unit["type"] | "all")[] = [
+  "all",
+  "Window Type",
+  "Split Type",
+  "Cassette",
+  "Floor Standing",
+  "Package AC",
+];
+
+const invoiceStatusFilters: (InvoiceStatus | "all")[] = [
+  "all",
+  "unpaid",
+  "partial",
+  "paid",
+  "overdue",
+];
+
+function invoiceBalance(inv: Invoice) {
+  return inv.items.reduce((s, i) => s + i.qty * i.unitPrice, 0) - inv.amountPaid;
+}
+
+function followupEmailTemplate(clientName: string, inv: Invoice, balance: number) {
+  return {
+    subject: `Payment Reminder — Invoice ${inv.invoiceNumber}`,
+    body: `Hi ${clientName},\n\nThis is a friendly reminder that Invoice ${inv.invoiceNumber} (issued ${formatDate(inv.issueDate)}, due ${formatDate(inv.dueDate)}) has an outstanding balance of ${formatCurrency(balance)}.\n\nKindly settle this at your earliest convenience. Let us know if you have any questions or need another copy of the invoice.\n\nThank you,\nGMIC CARES+`,
+  };
 }
 
 export default function ClientDetail() {
@@ -63,6 +115,7 @@ export default function ClientDetail() {
     addServiceRecordToUnit,
     updateClient,
     auditLog,
+    logAudit,
   } = useCrmStore();
   const client = clients.find((c) => c.id === id);
 
@@ -94,12 +147,138 @@ export default function ClientDetail() {
     notes: "",
   });
 
+  const [unitQuery, setUnitQuery] = useState("");
+  const [unitStatusFilter, setUnitStatusFilter] =
+    useState<(typeof unitStatusFilters)[number]>("all");
+  const [unitTypeFilter, setUnitTypeFilter] =
+    useState<(typeof unitTypeFilters)[number]>("all");
+  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
+
+  const [invoiceQuery, setInvoiceQuery] = useState("");
+  const [invoiceStatusFilter, setInvoiceStatusFilter] =
+    useState<(typeof invoiceStatusFilters)[number]>("all");
+  const [emailDialogInvoice, setEmailDialogInvoice] = useState<Invoice | null>(null);
+  const [emailForm, setEmailForm] = useState({ subject: "", body: "" });
+
+  function openFollowupEmail(inv: Invoice) {
+    if (!client) return;
+    setEmailForm(followupEmailTemplate(client.name, inv, invoiceBalance(inv)));
+    setEmailDialogInvoice(inv);
+  }
+
+  function sendFollowupEmail() {
+    if (!emailDialogInvoice || !client) return;
+    const mailto = `mailto:${encodeURIComponent(client.email)}?subject=${encodeURIComponent(emailForm.subject)}&body=${encodeURIComponent(emailForm.body)}`;
+    window.open(mailto, "_blank");
+    logAudit({
+      module: "client",
+      entityId: client.id,
+      entityLabel: client.name,
+      action: "update",
+      changes: [
+        {
+          field: "follow-up email",
+          oldValue: null,
+          newValue: `Drafted for ${emailDialogInvoice.invoiceNumber}`,
+        },
+      ],
+      actor: "You",
+    });
+    setEmailDialogInvoice(null);
+  }
+
+  function logFollowupCall(inv: Invoice) {
+    if (!client) return;
+    logAudit({
+      module: "client",
+      entityId: client.id,
+      entityLabel: client.name,
+      action: "update",
+      changes: [
+        {
+          field: "follow-up call",
+          oldValue: null,
+          newValue: `Logged for ${inv.invoiceNumber}`,
+        },
+      ],
+      actor: "You",
+    });
+    window.open(`tel:${client.phone}`, "_self");
+  }
+
+  function toggleUnitExpanded(unitId: string) {
+    setExpandedUnits((prev) => {
+      const next = new Set(prev);
+      if (next.has(unitId)) next.delete(unitId);
+      else next.add(unitId);
+      return next;
+    });
+  }
+
   if (!client) return <Navigate to="/clients" replace />;
 
   const clientInvoices = invoices.filter((i) => i.clientId === client.id);
   const clientAuditEntries = auditLog.filter(
     (e) => e.module === "client" && e.entityId === client.id,
   );
+
+  const unitSearch = unitQuery.trim().toLowerCase();
+  const filteredUnits = client.units.filter((unit) => {
+    const matchesQuery =
+      unitSearch === "" ||
+      unit.model.toLowerCase().includes(unitSearch) ||
+      unit.serialIndoor.toLowerCase().includes(unitSearch) ||
+      unit.serialOutdoor.toLowerCase().includes(unitSearch) ||
+      unit.location.toLowerCase().includes(unitSearch);
+    const matchesStatus =
+      unitStatusFilter === "all" || unit.status === unitStatusFilter;
+    const matchesType = unitTypeFilter === "all" || unit.type === unitTypeFilter;
+    return matchesQuery && matchesStatus && matchesType;
+  });
+  const hasActiveUnitFilters =
+    unitQuery.trim() !== "" || unitStatusFilter !== "all" || unitTypeFilter !== "all";
+
+  function clearUnitFilters() {
+    setUnitQuery("");
+    setUnitStatusFilter("all");
+    setUnitTypeFilter("all");
+  }
+
+  const {
+    page: unitPage,
+    setPage: setUnitPage,
+    pageSize: unitPageSize,
+    setPageSize: setUnitPageSize,
+    pageItems: unitPageItems,
+    total: unitTotal,
+  } = usePagination(filteredUnits, 10);
+
+  const invoiceSearch = invoiceQuery.trim().toLowerCase();
+  const filteredClientInvoices = clientInvoices.filter((inv) => {
+    const matchesQuery =
+      invoiceSearch === "" ||
+      inv.invoiceNumber.toLowerCase().includes(invoiceSearch) ||
+      inv.items.some((i) => i.description.toLowerCase().includes(invoiceSearch));
+    const matchesStatus =
+      invoiceStatusFilter === "all" || inv.status === invoiceStatusFilter;
+    return matchesQuery && matchesStatus;
+  });
+  const hasActiveInvoiceFilters =
+    invoiceQuery.trim() !== "" || invoiceStatusFilter !== "all";
+
+  function clearInvoiceFilters() {
+    setInvoiceQuery("");
+    setInvoiceStatusFilter("all");
+  }
+
+  const {
+    page: invoicePage,
+    setPage: setInvoicePage,
+    pageSize: invoicePageSize,
+    setPageSize: setInvoicePageSize,
+    pageItems: invoicePageItems,
+    total: invoiceTotal,
+  } = usePagination(filteredClientInvoices, 10);
 
   function handleAddUnit() {
     if (!client || !unitForm.serialIndoor || !unitForm.model) return;
@@ -487,156 +666,246 @@ export default function ClientDetail() {
             />
           ) : (
             <div className="space-y-4">
-              {client.units.map((unit) => {
-                const warranty = warrantyInfo(unit);
-                return (
-                <Card key={unit.id}>
-                  <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-                    <div>
-                      <CardTitle>{unit.model}</CardTitle>
-                      <p className="mt-1 text-xs text-ink-500">
-                        {unit.type} · {unit.horsePower} · {unit.location}
-                      </p>
-                    </div>
-                    <UnitStatusBadge status={unit.status} />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-3 rounded-lg bg-ink-50 p-3 font-mono-data text-xs sm:grid-cols-4">
-                      <div>
-                        <p className="text-ink-400">Indoor S/N</p>
-                        <p className="font-medium text-ink-800">
-                          {unit.serialIndoor}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-ink-400">Outdoor S/N</p>
-                        <p className="font-medium text-ink-800">
-                          {unit.serialOutdoor}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-ink-400">Installed</p>
-                        <p className="font-medium text-ink-800">
-                          {formatDate(unit.installDate)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-ink-400">Warranty</p>
-                        <p className="font-medium text-ink-800">
-                          {unit.warrantyMonths} months
-                        </p>
-                        <p className={warranty.expired ? "text-brand-crimson-600" : "text-ink-500"}>
-                          {warranty.expired
-                            ? `Expired ${formatDate(warranty.expiresOn)}`
-                            : `Expires ${formatDate(warranty.expiresOn)} (${warranty.daysLeft}d)`}
-                        </p>
-                      </div>
-                    </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="relative max-w-sm flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
+                  <Input
+                    value={unitQuery}
+                    onChange={(e) => setUnitQuery(e.target.value)}
+                    placeholder="Search by model, serial, or location..."
+                    className="pl-9"
+                  />
+                </div>
+                <Select
+                  value={unitStatusFilter}
+                  onValueChange={(v) =>
+                    setUnitStatusFilter(v as typeof unitStatusFilter)
+                  }
+                >
+                  <SelectTrigger className="w-full sm:w-44">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {unitStatusFilters.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s === "all" ? "All statuses" : unitStatusLabels[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={unitTypeFilter}
+                  onValueChange={(v) => setUnitTypeFilter(v as typeof unitTypeFilter)}
+                >
+                  <SelectTrigger className="w-full sm:w-44">
+                    <SelectValue placeholder="Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {unitTypeFilters.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t === "all" ? "All types" : t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {hasActiveUnitFilters && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearUnitFilters}
+                    className="text-ink-500"
+                  >
+                    <X className="h-3.5 w-3.5" /> Clear
+                  </Button>
+                )}
+              </div>
 
-                    <div className="mt-4 flex items-center justify-between">
-                      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">
-                        <History className="h-3.5 w-3.5" /> Service History
-                      </p>
-                      <Dialog
-                        open={serviceDialogOpen === unit.id}
-                        onOpenChange={(o) =>
-                          setServiceDialogOpen(o ? unit.id : null)
-                        }
-                      >
-                        <DialogTrigger asChild>
-                          <Button size="sm" variant="outline">
-                            <Wrench className="h-3.5 w-3.5" /> Log Service
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Log a service record</DialogTitle>
-                            <DialogDescription>
-                              Recorded against S/N {unit.serialIndoor}
-                            </DialogDescription>
-                          </DialogHeader>
-                          <div className="grid gap-3">
-                            <div className="space-y-1.5">
-                              <Label>Service Type</Label>
-                              <Select
-                                value={serviceForm.type}
-                                onValueChange={(v) =>
-                                  setServiceForm({ ...serviceForm, type: v })
-                                }
-                              >
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {serviceCatalog.map((s) => (
-                                    <SelectItem key={s.id} value={s.name}>
-                                      {s.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label>Notes</Label>
-                              <Textarea
-                                value={serviceForm.notes}
-                                onChange={(e) =>
-                                  setServiceForm({
-                                    ...serviceForm,
-                                    notes: e.target.value,
-                                  })
-                                }
-                                placeholder="What was done during this visit?"
-                              />
-                            </div>
-                          </div>
-                          <DialogFooter>
-                            <Button
-                              variant="outline"
-                              onClick={() => setServiceDialogOpen(null)}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              variant="brand"
-                              onClick={() => handleAddService(unit.id)}
-                            >
-                              Save Record
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-                    </div>
-
-                    <div className="mt-3 space-y-2">
-                      {unit.serviceHistory.length === 0 && (
-                        <p className="text-xs text-ink-400">
-                          No service history yet.
-                        </p>
-                      )}
-                      {unit.serviceHistory.map((record) => (
-                        <div
-                          key={record.id}
-                          className="flex items-start justify-between rounded-lg border border-ink-100 px-3 py-2"
-                        >
+              {filteredUnits.length === 0 ? (
+                <EmptyState
+                  icon={Snowflake}
+                  title="No units found"
+                  description="Try a different search term or filter."
+                />
+              ) : (
+                <FilterTransition filterKey={`${unitQuery}-${unitStatusFilter}-${unitTypeFilter}-${unitPage}`} className="space-y-4">
+                <div className="space-y-3">
+                  {unitPageItems.map((unit) => {
+                    const warranty = warrantyInfo(unit);
+                    const isExpanded = expandedUnits.has(unit.id);
+                    return (
+                      <Card key={unit.id}>
+                        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
                           <div>
-                            <p className="text-sm font-medium text-ink-800">
-                              {record.type}
-                            </p>
-                            <p className="text-xs text-ink-500">
-                              {record.notes}
+                            <CardTitle>{unit.model}</CardTitle>
+                            <p className="mt-1 text-xs text-ink-500">
+                              {unit.type} · {unit.horsePower} · {unit.location}
                             </p>
                           </div>
-                          <span className="shrink-0 text-xs text-ink-400">
-                            {formatDate(record.date)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
+                          <UnitStatusBadge status={unit.status} />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-2 gap-3 rounded-lg bg-ink-50 p-3 font-mono-data text-xs sm:grid-cols-4">
+                            <div>
+                              <p className="text-ink-400">Indoor S/N</p>
+                              <p className="font-medium text-ink-800">
+                                {unit.serialIndoor}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-ink-400">Outdoor S/N</p>
+                              <p className="font-medium text-ink-800">
+                                {unit.serialOutdoor}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-ink-400">Installed</p>
+                              <p className="font-medium text-ink-800">
+                                {formatDate(unit.installDate)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-ink-400">Warranty</p>
+                              <p className="font-medium text-ink-800">
+                                {unit.warrantyMonths} months
+                              </p>
+                              <p className={warranty.expired ? "text-brand-crimson-600" : "text-ink-500"}>
+                                {warranty.expired
+                                  ? `Expired ${formatDate(warranty.expiresOn)}`
+                                  : `Expires ${formatDate(warranty.expiresOn)} (${warranty.daysLeft}d)`}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 flex items-center justify-between">
+                            <button
+                              type="button"
+                              onClick={() => toggleUnitExpanded(unit.id)}
+                              className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500 hover:text-ink-800"
+                            >
+                              <History className="h-3.5 w-3.5" />
+                              Service History ({unit.serviceHistory.length})
+                              <ChevronDown
+                                className={`h-3.5 w-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                              />
+                            </button>
+                            <Dialog
+                              open={serviceDialogOpen === unit.id}
+                              onOpenChange={(o) =>
+                                setServiceDialogOpen(o ? unit.id : null)
+                              }
+                            >
+                              <DialogTrigger asChild>
+                                <Button size="sm" variant="outline">
+                                  <Wrench className="h-3.5 w-3.5" /> Log Service
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Log a service record</DialogTitle>
+                                  <DialogDescription>
+                                    Recorded against S/N {unit.serialIndoor}
+                                  </DialogDescription>
+                                </DialogHeader>
+                                <div className="grid gap-3">
+                                  <div className="space-y-1.5">
+                                    <Label>Service Type</Label>
+                                    <Select
+                                      value={serviceForm.type}
+                                      onValueChange={(v) =>
+                                        setServiceForm({ ...serviceForm, type: v })
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {serviceCatalog.map((s) => (
+                                          <SelectItem key={s.id} value={s.name}>
+                                            {s.name}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label>Notes</Label>
+                                    <Textarea
+                                      value={serviceForm.notes}
+                                      onChange={(e) =>
+                                        setServiceForm({
+                                          ...serviceForm,
+                                          notes: e.target.value,
+                                        })
+                                      }
+                                      placeholder="What was done during this visit?"
+                                    />
+                                  </div>
+                                </div>
+                                <DialogFooter>
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => setServiceDialogOpen(null)}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button
+                                    variant="brand"
+                                    onClick={() => handleAddService(unit.id)}
+                                  >
+                                    Save Record
+                                  </Button>
+                                </DialogFooter>
+                              </DialogContent>
+                            </Dialog>
+                          </div>
+
+                          {isExpanded && (
+                            <div className="mt-3 space-y-2">
+                              {unit.serviceHistory.length === 0 && (
+                                <p className="text-xs text-ink-400">
+                                  No service history yet.
+                                </p>
+                              )}
+                              {unit.serviceHistory.map((record) => (
+                                <div
+                                  key={record.id}
+                                  className="flex items-start justify-between rounded-lg border border-ink-100 px-3 py-2"
+                                >
+                                  <div>
+                                    <p className="text-sm font-medium text-ink-800">
+                                      {record.type}
+                                    </p>
+                                    <p className="text-xs text-ink-500">
+                                      {record.notes}
+                                    </p>
+                                  </div>
+                                  <span className="shrink-0 text-xs text-ink-400">
+                                    {formatDate(record.date)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+                </FilterTransition>
+              )}
+
+              {filteredUnits.length > 0 && (
+                <Card>
+                  <Pagination
+                    page={unitPage}
+                    pageSize={unitPageSize}
+                    total={unitTotal}
+                    onPageChange={setUnitPage}
+                    onPageSizeChange={setUnitPageSize}
+                    pageSizeOptions={[10, 25, 50, 100]}
+                  />
                 </Card>
-                );
-              })}
+              )}
             </div>
           )}
         </TabsContent>
@@ -649,57 +918,199 @@ export default function ClientDetail() {
               description="Invoices created for this client will appear here."
             />
           ) : (
-            <div className="space-y-2">
-              {clientInvoices.map((inv) => {
-                const kinds = new Set(
-                  inv.items.map((i) => i.kind).filter(Boolean),
-                );
-                const kindLabel =
-                  kinds.size > 1
-                    ? "Unit + Service"
-                    : kinds.has("unit")
-                      ? "Unit"
-                      : kinds.has("service")
-                        ? "Service"
-                        : null;
-                const itemSummary = inv.items
-                  .map((i) => i.description)
-                  .join(", ");
-                return (
-                  <Card key={inv.id}>
-                    <CardContent className="flex items-center justify-between p-4">
-                      <div>
-                        <p className="font-mono-data text-sm font-medium text-ink-800">
-                          {inv.invoiceNumber}
-                        </p>
-                        <p className="text-xs text-ink-500">
-                          Issued {formatDate(inv.issueDate)} · Due{" "}
-                          {formatDate(inv.dueDate)}
-                        </p>
-                        <div className="mt-1 flex items-center gap-1.5">
-                          {kindLabel && (
-                            <Badge variant="secondary">{kindLabel}</Badge>
-                          )}
-                          <span className="text-xs text-ink-500">
-                            {itemSummary}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium">
-                          {formatCurrency(
-                            inv.items.reduce(
-                              (s, i) => s + i.qty * i.unitPrice,
-                              0,
-                            ),
-                          )}
-                        </span>
-                        <InvoiceStatusBadge status={inv.status} />
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="relative max-w-sm flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
+                  <Input
+                    value={invoiceQuery}
+                    onChange={(e) => setInvoiceQuery(e.target.value)}
+                    placeholder="Search by invoice # or item..."
+                    className="pl-9"
+                  />
+                </div>
+                <Select
+                  value={invoiceStatusFilter}
+                  onValueChange={(v) =>
+                    setInvoiceStatusFilter(v as typeof invoiceStatusFilter)
+                  }
+                >
+                  <SelectTrigger className="w-full sm:w-44">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {invoiceStatusFilters.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {hasActiveInvoiceFilters && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearInvoiceFilters}
+                    className="text-ink-500"
+                  >
+                    <X className="h-3.5 w-3.5" /> Clear
+                  </Button>
+                )}
+              </div>
+
+              {filteredClientInvoices.length === 0 ? (
+                <EmptyState
+                  icon={History}
+                  title="No invoices found"
+                  description="Try a different search term or filter."
+                />
+              ) : (
+                <FilterTransition filterKey={`${invoiceQuery}-${invoiceStatusFilter}-${invoicePage}`}>
+                <div className="space-y-2">
+                  {invoicePageItems.map((inv) => {
+                    const kinds = new Set(
+                      inv.items.map((i) => i.kind).filter(Boolean),
+                    );
+                    const kindLabel =
+                      kinds.size > 1
+                        ? "Unit + Service"
+                        : kinds.has("unit")
+                          ? "Unit"
+                          : kinds.has("service")
+                            ? "Service"
+                            : null;
+                    const itemSummary = inv.items
+                      .map((i) => i.description)
+                      .join(", ");
+                    const balance = invoiceBalance(inv);
+                    const needsFollowup =
+                      inv.status === "unpaid" || inv.status === "overdue";
+                    return (
+                      <Card key={inv.id}>
+                        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="font-mono-data text-sm font-medium text-ink-800">
+                              {inv.invoiceNumber}
+                            </p>
+                            <p className="text-xs text-ink-500">
+                              Issued {formatDate(inv.issueDate)} · Due{" "}
+                              {formatDate(inv.dueDate)}
+                            </p>
+                            <div className="mt-1 flex items-center gap-1.5">
+                              {kindLabel && (
+                                <Badge variant="secondary">{kindLabel}</Badge>
+                              )}
+                              <span className="text-xs text-ink-500">
+                                {itemSummary}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                            <span className="text-sm font-medium">
+                              {formatCurrency(
+                                inv.items.reduce(
+                                  (s, i) => s + i.qty * i.unitPrice,
+                                  0,
+                                ),
+                              )}
+                            </span>
+                            <InvoiceStatusBadge status={inv.status} />
+                            {needsFollowup && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  title={`Email a payment reminder for ₱${balance.toLocaleString()} outstanding`}
+                                  onClick={() => openFollowupEmail(inv)}
+                                >
+                                  <Mail className="h-3.5 w-3.5" /> Email Follow-up
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  title="Call client about outstanding balance"
+                                  onClick={() => logFollowupCall(inv)}
+                                >
+                                  <PhoneCall className="h-3.5 w-3.5" /> Call
+                                </Button>
+                              </>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              title="Export PDF"
+                              onClick={() => exportInvoicePdf(inv)}
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+                </FilterTransition>
+              )}
+
+              {filteredClientInvoices.length > 0 && (
+                <Card>
+                  <Pagination
+                    page={invoicePage}
+                    pageSize={invoicePageSize}
+                    total={invoiceTotal}
+                    onPageChange={setInvoicePage}
+                    onPageSizeChange={setInvoicePageSize}
+                    pageSizeOptions={[10, 25, 50, 100]}
+                  />
+                </Card>
+              )}
+
+              <Dialog
+                open={emailDialogInvoice !== null}
+                onOpenChange={(o) => !o && setEmailDialogInvoice(null)}
+              >
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Email a follow-up</DialogTitle>
+                    <DialogDescription>
+                      {emailDialogInvoice &&
+                        `Drafted to ${client.email} regarding ${emailDialogInvoice.invoiceNumber}. Review before sending — this opens your email client.`}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Subject</Label>
+                      <Input
+                        value={emailForm.subject}
+                        onChange={(e) =>
+                          setEmailForm({ ...emailForm, subject: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Message</Label>
+                      <Textarea
+                        rows={8}
+                        value={emailForm.body}
+                        onChange={(e) =>
+                          setEmailForm({ ...emailForm, body: e.target.value })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setEmailDialogInvoice(null)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button variant="brand" onClick={sendFollowupEmail}>
+                      <Mail className="h-3.5 w-3.5" /> Open in Email Client
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           )}
         </TabsContent>

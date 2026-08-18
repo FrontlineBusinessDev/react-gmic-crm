@@ -14,6 +14,7 @@ export const mockSchedule: ScheduleJob[] = [
     clientName: "Dr. Amelia Cruz Clinic",
     address: "5th Flr, Medical Arts Bldg, Biñan, Laguna",
     notes: "Bring 2.0HP low-noise unit, panel confirmed ready.",
+    serviceId: "svc-006",
   },
   {
     id: "job-002",
@@ -28,6 +29,7 @@ export const mockSchedule: ScheduleJob[] = [
     address: "Km 54 National Hwy, Los Baños, Laguna",
     unitId: "un-004",
     notes: "Quarterly PMS, kitchen prep area unit.",
+    serviceId: "svc-002",
   },
   {
     id: "job-003",
@@ -40,6 +42,7 @@ export const mockSchedule: ScheduleJob[] = [
     clientName: "Coastal Bakeshop",
     address: "23 Mabini St., Los Baños, Laguna",
     notes: "Survey for 2 cassette units, bring measuring tools.",
+    serviceId: "svc-001",
   },
   {
     id: "job-004",
@@ -54,6 +57,7 @@ export const mockSchedule: ScheduleJob[] = [
     address: "88 Rizal Blvd., Biñan, Laguna",
     unitId: "un-007",
     notes: "Room 202 unit needs service, weak cooling reported.",
+    serviceId: "svc-003",
   },
   {
     id: "job-005",
@@ -68,6 +72,7 @@ export const mockSchedule: ScheduleJob[] = [
     address: "12 Acacia St., Brgy. San Isidro, Calamba, Laguna",
     unitId: "un-002",
     notes: "Kids room unit flagged needs_service.",
+    serviceId: "svc-002",
   },
   {
     id: "job-006",
@@ -81,6 +86,7 @@ export const mockSchedule: ScheduleJob[] = [
     clientName: "Edmund & Liza Castro",
     address: "45 Mahogany Ave., Greenfield Subd., Sta. Rosa, Laguna",
     notes: "Completed without issues.",
+    serviceId: "svc-006",
   },
   {
     id: "job-007",
@@ -93,6 +99,7 @@ export const mockSchedule: ScheduleJob[] = [
     clientName: "Familia Reyes",
     address: "78 Narra St., Brgy. Real, Calamba, Laguna",
     notes: "Survey completed, report filed.",
+    serviceId: "svc-001",
   },
   {
     id: "job-008",
@@ -105,5 +112,6 @@ export const mockSchedule: ScheduleJob[] = [
     clientName: "Green Meadows HOA",
     address: "Clubhouse, Green Meadows Subd., Sta. Rosa, Laguna",
     notes: "Panel upgrade consultation ahead of install.",
+    serviceId: "svc-004",
   },
 ];
