@@ -203,7 +203,7 @@ export default function ClientsList() {
       const units = form.units
         .filter((u) => u.model && u.serialIndoor)
         .map(({ key, ...unit }) => unit);
-      addClient({
+      const newClientId = addClient({
         name: form.name,
         phone: form.phone,
         email: form.email,
@@ -212,6 +212,11 @@ export default function ClientsList() {
         tags,
         units,
       });
+      setForm(emptyForm);
+      setEditTarget(null);
+      setOpen(false);
+      navigate(`/clients/${newClientId}`);
+      return;
     }
     setForm(emptyForm);
     setEditTarget(null);
