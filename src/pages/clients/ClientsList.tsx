@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search, Plus, ChevronRight, X, Pencil, Archive, ArchiveRestore } from "lucide-react";
+import { Search, Plus, ChevronRight, X, Pencil, Archive, ArchiveRestore, ArrowUpDown, ListFilter, Users, FileUp } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,14 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/mobile-list";
@@ -24,46 +32,135 @@ import { ClientStatusBadge } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Pagination } from "@/components/shared/pagination";
+import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { formatCurrency } from "@/lib/utils";
-import { Users } from "lucide-react";
-import type { Client, ClientStatus } from "@/types";
+import type { Client, ClientStatus, Unit } from "@/types";
+
+const CLIENT_CSV_HEADERS = ["name", "phone", "email", "address", "tags", "status"];
 
 const statusFilters: (ClientStatus | "all")[] = ["all", "active", "lead", "inactive", "archived"];
-const emptyForm = { name: "", phone: "", email: "", address: "", tags: "" };
+type UnitDraft = Omit<Unit, "id" | "serviceHistory"> & { key: string };
+function emptyUnitDraft(): UnitDraft {
+  return {
+    key: `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    serialIndoor: "",
+    serialOutdoor: "",
+    model: "",
+    type: "Split Type",
+    horsePower: "1.5 HP",
+    installDate: new Date().toISOString().slice(0, 10),
+    warrantyMonths: 24,
+    status: "active",
+    location: "",
+  };
+}
+const emptyForm = { name: "", phone: "", email: "", address: "", tags: "", units: [] as UnitDraft[] };
+
+type ClientSearchField = "name" | "phone" | "email" | "address" | "tags";
+const searchFieldOptions: { key: ClientSearchField; label: string }[] = [
+  { key: "name", label: "Name" },
+  { key: "phone", label: "Phone" },
+  { key: "email", label: "Email" },
+  { key: "address", label: "Address" },
+  { key: "tags", label: "Tags" },
+];
+type ClientSortBy = "name" | "balance" | "createdAt" | "units";
+const sortOptions: { key: ClientSortBy; label: string }[] = [
+  { key: "createdAt", label: "Date added" },
+  { key: "name", label: "Name" },
+  { key: "balance", label: "Balance" },
+  { key: "units", label: "Unit count" },
+];
 
 export default function ClientsList() {
   const navigate = useNavigate();
   const { clients, addClient, updateClient, archiveClient, restoreClient, auditLog } = useCrmStore();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<(typeof statusFilters)[number]>("all");
+  const [searchFields, setSearchFields] = useState<Set<ClientSearchField>>(
+    new Set(["name", "phone", "email", "address"])
+  );
+  const [sortBy, setSortBy] = useState<ClientSortBy>("createdAt");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [open, setOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Client | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [importOpen, setImportOpen] = useState(false);
+
+  function handleClientImport(rows: Record<string, string>[]) {
+    const errors: string[] = [];
+    let successCount = 0;
+    const validStatuses: ClientStatus[] = ["active", "lead", "inactive", "archived"];
+    rows.forEach((row, i) => {
+      if (!row.name || !row.phone) {
+        errors.push(`Row ${i + 2}: missing required name or phone.`);
+        return;
+      }
+      const status = validStatuses.includes(row.status as ClientStatus) ? (row.status as ClientStatus) : "active";
+      addClient({
+        name: row.name,
+        phone: row.phone,
+        email: row.email ?? "",
+        address: row.address ?? "",
+        status,
+        tags: row.tags ? row.tags.split(";").map((t) => t.trim()).filter(Boolean) : [],
+      });
+      successCount++;
+    });
+    return { successCount, errors };
+  }
 
   const clientAuditEntries = useMemo(() => auditLog.filter((e) => e.module === "client"), [auditLog]);
 
+  function toggleSearchField(field: ClientSearchField) {
+    setSearchFields((prev) => {
+      const next = new Set(prev);
+      if (next.has(field)) next.delete(field);
+      else next.add(field);
+      return next;
+    });
+  }
+
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
-    return clients.filter((c) => {
+    const result = clients.filter((c) => {
       const matchesQuery =
         !q ||
-        c.name.toLowerCase().includes(q) ||
-        c.email.toLowerCase().includes(q) ||
-        c.phone.includes(q) ||
-        c.address.toLowerCase().includes(q);
+        (searchFields.has("name") && c.name.toLowerCase().includes(q)) ||
+        (searchFields.has("email") && c.email.toLowerCase().includes(q)) ||
+        (searchFields.has("phone") && c.phone.includes(q)) ||
+        (searchFields.has("address") && c.address.toLowerCase().includes(q)) ||
+        (searchFields.has("tags") && c.tags.some((t) => t.toLowerCase().includes(q)));
       const matchesStatus = status === "all" || c.status === status;
       return matchesQuery && matchesStatus;
     });
-  }, [clients, query, status]);
+    result.sort((a, b) => {
+      let diff = 0;
+      if (sortBy === "name") diff = a.name.localeCompare(b.name);
+      else if (sortBy === "balance") diff = a.balance - b.balance;
+      else if (sortBy === "units") diff = a.units.length - b.units.length;
+      else diff = a.createdAt.localeCompare(b.createdAt);
+      return sortDir === "asc" ? diff : -diff;
+    });
+    return result;
+  }, [clients, query, status, searchFields, sortBy, sortDir]);
 
   const { page, setPage, pageSize, setPageSize, pageItems, total } = usePagination(filtered, 10);
-  const hasActiveFilters = query.trim() !== "" || status !== "all";
+  const hasActiveFilters =
+    query.trim() !== "" ||
+    status !== "all" ||
+    sortBy !== "createdAt" ||
+    sortDir !== "desc" ||
+    searchFields.size !== 4;
 
   function clearFilters() {
     setQuery("");
     setStatus("all");
+    setSortBy("createdAt");
+    setSortDir("desc");
+    setSearchFields(new Set(["name", "phone", "email", "address"]));
   }
 
   function openAdd() {
@@ -80,8 +177,21 @@ export default function ClientsList() {
       email: client.email,
       address: client.address,
       tags: client.tags.join(", "),
+      units: [],
     });
     setOpen(true);
+  }
+
+  function addUnitDraft() {
+    setForm((f) => ({ ...f, units: [...f.units, emptyUnitDraft()] }));
+  }
+
+  function updateUnitDraft(key: string, updates: Partial<UnitDraft>) {
+    setForm((f) => ({ ...f, units: f.units.map((u) => (u.key === key ? { ...u, ...updates } : u)) }));
+  }
+
+  function removeUnitDraft(key: string) {
+    setForm((f) => ({ ...f, units: f.units.filter((u) => u.key !== key) }));
   }
 
   function handleSave() {
@@ -90,6 +200,9 @@ export default function ClientsList() {
     if (editTarget) {
       updateClient(editTarget.id, { name: form.name, phone: form.phone, email: form.email, address: form.address, tags });
     } else {
+      const units = form.units
+        .filter((u) => u.model && u.serialIndoor)
+        .map(({ key, ...unit }) => unit);
       addClient({
         name: form.name,
         phone: form.phone,
@@ -97,6 +210,7 @@ export default function ClientsList() {
         address: form.address,
         status: "active",
         tags,
+        units,
       });
     }
     setForm(emptyForm);
@@ -110,6 +224,10 @@ export default function ClientsList() {
         title="Clients"
         description="Every client and their unit history, in one place."
         actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <FileUp className="h-4 w-4" /> Import CSV
+            </Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button variant="brand" onClick={openAdd}>
@@ -146,6 +264,77 @@ export default function ClientsList() {
                   <Label>Tags (comma-separated)</Label>
                   <Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="Residential, VIP" />
                 </div>
+
+                {!editTarget && (
+                  <div className="space-y-1.5 rounded-lg border border-ink-100 bg-ink-50/60 p-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Units (optional)</Label>
+                      <Button type="button" size="sm" variant="outline" onClick={addUnitDraft}>
+                        <Plus className="h-3.5 w-3.5" /> Add unit
+                      </Button>
+                    </div>
+                    <p className="text-xs text-ink-400">You can add multiple units now, or skip this and add them later from the client's profile.</p>
+                    {form.units.length > 0 && (
+                      <div className="space-y-3">
+                        {form.units.map((unit) => (
+                          <div key={unit.key} className="space-y-2 rounded-lg border border-ink-100 bg-white p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <Input
+                                value={unit.model}
+                                onChange={(e) => updateUnitDraft(unit.key, { model: e.target.value })}
+                                placeholder="Model, e.g. Carrier Optimax 1.5HP"
+                                className="flex-1"
+                              />
+                              <Button type="button" size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-ink-400" onClick={() => removeUnitDraft(unit.key)}>
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input
+                                value={unit.serialIndoor}
+                                onChange={(e) => updateUnitDraft(unit.key, { serialIndoor: e.target.value })}
+                                placeholder="Indoor serial"
+                              />
+                              <Input
+                                value={unit.serialOutdoor}
+                                onChange={(e) => updateUnitDraft(unit.key, { serialOutdoor: e.target.value })}
+                                placeholder="Outdoor serial"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Select value={unit.type} onValueChange={(v) => updateUnitDraft(unit.key, { type: v as Unit["type"] })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {(["Window Type", "Split Type", "Cassette", "Floor Standing", "Package AC"] as const).map((t) => (
+                                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Input
+                                value={unit.horsePower}
+                                onChange={(e) => updateUnitDraft(unit.key, { horsePower: e.target.value })}
+                                placeholder="1.5 HP"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input
+                                value={unit.location}
+                                onChange={(e) => updateUnitDraft(unit.key, { location: e.target.value })}
+                                placeholder="Location, e.g. Master Bedroom"
+                              />
+                              <Input
+                                type="number"
+                                value={unit.warrantyMonths}
+                                onChange={(e) => updateUnitDraft(unit.key, { warrantyMonths: Number(e.target.value) || 0 })}
+                                placeholder="Warranty (months)"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
@@ -153,7 +342,18 @@ export default function ClientsList() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         }
+      />
+
+      <CsvImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        title="Import clients"
+        templateHeaders={CLIENT_CSV_HEADERS}
+        templateSampleRow={["Juan Dela Cruz", "0917 000 0000", "juan@email.com", "123 Rizal St., Calamba, Laguna", "Residential;VIP", "active"]}
+        templateFilename="clients-import-template.csv"
+        onImport={handleClientImport}
       />
 
       <Tabs defaultValue="list">
@@ -185,6 +385,45 @@ export default function ClientsList() {
                 ))}
               </SelectContent>
             </Select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="shrink-0">
+                  <ListFilter className="h-3.5 w-3.5" /> Search columns ({searchFields.size})
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuLabel>Search in</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {searchFieldOptions.map((opt) => (
+                  <DropdownMenuCheckboxItem
+                    key={opt.key}
+                    checked={searchFields.has(opt.key)}
+                    onCheckedChange={() => toggleSearchField(opt.key)}
+                  >
+                    {opt.label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as ClientSortBy)}>
+              <SelectTrigger className="w-full sm:w-44">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                {sortOptions.map((opt) => (
+                  <SelectItem key={opt.key} value={opt.key}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => setSortDir((v) => (v === "asc" ? "desc" : "asc"))}
+              title="Toggle sort direction"
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" /> {sortDir === "asc" ? "Ascending" : "Descending"}
+            </Button>
             {hasActiveFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="text-ink-500">
                 <X className="h-3.5 w-3.5" /> Clear

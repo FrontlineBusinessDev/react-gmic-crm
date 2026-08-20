@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   MapPin,
   Clock,
@@ -12,7 +12,6 @@ import {
   CalendarClock,
   Camera,
   X,
-  Upload,
   Search,
   LayoutGrid,
   List as ListIcon,
@@ -52,6 +51,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { JobStatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { RestrictedField } from "@/components/shared/restricted-field";
+import { FileDropZone } from "@/components/shared/file-drop-zone";
 import { SurveyPhotoGrid } from "@/components/shared/survey-photos";
 import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
@@ -131,7 +131,7 @@ const confirmCopy: Record<
 
 export default function MyJobs() {
   const currentUser = useAuthStore((s) => s.currentUser);
-  const { schedule, leads, updateJobStatus, addSurveyReport, moveLeadStage } =
+  const { schedule, leads, updateJobStatus, addSurveyReport, moveLeadStage, claimJob } =
     useCrmStore();
   const [activeJob, setActiveJob] = useState<ScheduleJob | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(
@@ -145,7 +145,6 @@ export default function MyJobs() {
     recommendedUnits: "",
   });
   const [surveyPhotos, setSurveyPhotos] = useState<string[]>([]);
-  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const [activeView, setActiveView] = useState<"cards" | "table">("cards");
   const [activeQuery, setActiveQuery] = useState("");
@@ -166,6 +165,22 @@ export default function MyJobs() {
     () => schedule.filter((j) => j.technicianId === currentUser?.id),
     [schedule, currentUser],
   );
+
+  // Open Survey jobs not yet claimed by anyone — any technician can pick these up,
+  // e.g. to cover a survey outside their own assigned client list.
+  const unassignedJobs = useMemo(
+    () =>
+      schedule
+        .filter((j) => j.technicianId === null && j.status === "scheduled")
+        .sort((a, b) => a.date.localeCompare(b.date)),
+    [schedule],
+  );
+
+  function handleClaim(jobId: string) {
+    if (!currentUser) return;
+    claimJob(jobId, currentUser.id);
+    setActiveJob(null);
+  }
 
   const activeJobs = useMemo(
     () =>
@@ -281,9 +296,8 @@ export default function MyJobs() {
     setSurveyOpen(true);
   }
 
-  function handlePhotoSelect(files: FileList | null) {
-    if (!files) return;
-    const urls = Array.from(files).map((f) => URL.createObjectURL(f));
+  function handlePhotoSelect(files: File[]) {
+    const urls = files.map((f) => URL.createObjectURL(f));
     setSurveyPhotos((prev) => [...prev, ...urls]);
   }
 
@@ -449,6 +463,14 @@ export default function MyJobs() {
       <Tabs defaultValue="active">
         <TabsList>
           <TabsTrigger value="active">Active Jobs</TabsTrigger>
+          <TabsTrigger value="surveys">
+            <ClipboardList className="h-3.5 w-3.5" /> Available Surveys
+            {unassignedJobs.length > 0 && (
+              <span className="ml-1 rounded-full bg-brand-blue-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                {unassignedJobs.length}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="history">
             <History className="h-3.5 w-3.5" /> Job History
           </TabsTrigger>
@@ -576,6 +598,46 @@ export default function MyJobs() {
                 </FilterTransition>
               )}
             </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="surveys" className="space-y-6">
+          {unassignedJobs.length === 0 ? (
+            <EmptyState
+              icon={ClipboardList}
+              title="No open surveys right now"
+              description="Unassigned survey visits that anyone on the team can pick up will show up here."
+            />
+          ) : (
+            <Card>
+              <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+                {unassignedJobs.map((job) => (
+                  <Card key={job.id} className="transition-shadow hover:shadow-md">
+                    <CardContent className="space-y-3 p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium text-ink-800">{job.title}</p>
+                        <JobStatusBadge status={job.status} />
+                      </div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-brand-blue-600">
+                        {job.type}
+                      </p>
+                      <div className="flex items-center gap-1.5 text-xs text-ink-500">
+                        <Clock className="h-3.5 w-3.5" /> {formatDate(job.date)} · {job.time}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs text-ink-500">
+                        <MapPin className="h-3.5 w-3.5 shrink-0" /> {job.address}
+                      </div>
+                      {job.notes && (
+                        <p className="text-xs text-ink-500 line-clamp-2">{job.notes}</p>
+                      )}
+                      <Button variant="brand" size="sm" className="w-full" onClick={() => handleClaim(job.id)}>
+                        Claim This Survey
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </Card>
           )}
         </TabsContent>
 
@@ -917,25 +979,12 @@ export default function MyJobs() {
             </div>
             <div className="space-y-1.5">
               <Label>Photos</Label>
-              <input
-                ref={photoInputRef}
-                type="file"
+              <FileDropZone
                 accept="image/*"
                 multiple
-                className="hidden"
-                onChange={(e) => {
-                  handlePhotoSelect(e.target.files);
-                  e.target.value = "";
-                }}
+                onFilesSelected={handlePhotoSelect}
+                label="Drag & drop photos here, or click to browse"
               />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => photoInputRef.current?.click()}
-              >
-                <Upload className="h-3.5 w-3.5" /> Add Photos
-              </Button>
               {surveyPhotos.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {surveyPhotos.map((url) => (

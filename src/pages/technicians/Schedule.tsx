@@ -25,6 +25,7 @@ import {
   Trash2,
   AlertTriangle,
   Pencil,
+  FileUp,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -56,6 +57,7 @@ import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
+import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { mockUsers } from "@/data/users";
@@ -63,6 +65,8 @@ import { cn, initials } from "@/lib/utils";
 import type { JobStatus, JobType, ScheduleJob } from "@/types";
 
 const technicians = mockUsers.filter((u) => u.role === "technician");
+const SCHEDULE_CSV_HEADERS = ["title", "type", "date", "time", "technicianId", "clientId", "notes"];
+const validJobTypes: JobType[] = ["Survey", "Installation", "PMS Cleaning", "Repair", "Warranty Service"];
 const jobTypes: (JobType | "all")[] = [
   "all",
   "Survey",
@@ -142,6 +146,35 @@ export default function Schedule() {
   const [anchorMonth, setAnchorMonth] = useState(() =>
     startOfMonth(new Date()),
   );
+  const [importOpen, setImportOpen] = useState(false);
+
+  function handleScheduleImport(rows: Record<string, string>[]) {
+    const errors: string[] = [];
+    let successCount = 0;
+    rows.forEach((row, i) => {
+      if (!row.title || !row.date || !row.time) {
+        errors.push(`Row ${i + 2}: missing required title, date, or time.`);
+        return;
+      }
+      const type = validJobTypes.includes(row.type as JobType) ? (row.type as JobType) : "Survey";
+      const client = clients.find((c) => c.id === row.clientId);
+      addJob({
+        title: row.title,
+        type,
+        status: "scheduled",
+        date: row.date,
+        time: row.time,
+        technicianId: row.technicianId ? row.technicianId : null,
+        clientId: client?.id,
+        clientName: client?.name ?? row.title,
+        address: client?.address ?? "",
+        notes: row.notes ?? "",
+      });
+      successCount++;
+    });
+    return { successCount, errors };
+  }
+
   const [dayDialogDate, setDayDialogDate] = useState<string | null>(null);
   const [activeJob, setActiveJob] = useState<ScheduleJob | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ScheduleJob | null>(null);
@@ -154,12 +187,13 @@ export default function Schedule() {
     useState<(typeof jobStatuses)[number]>("all");
   const [dateScope, setDateScope] = useState<"all" | "today" | "week">("all");
 
+  const UNASSIGNED = "unassigned";
   const emptyForm = {
     serviceId: "",
     type: "Survey" as JobType,
     date: new Date().toISOString().slice(0, 10),
     time: "9:00 AM",
-    technicianId: technicians[0]?.id ?? "",
+    technicianId: technicians[0]?.id ?? UNASSIGNED,
     clientId: "",
     notes: "",
   };
@@ -270,7 +304,7 @@ export default function Schedule() {
       type: job.type,
       date: job.date,
       time: job.time,
-      technicianId: job.technicianId,
+      technicianId: job.technicianId ?? UNASSIGNED,
       clientId: job.clientId ?? "",
       notes: job.notes,
     });
@@ -285,6 +319,7 @@ export default function Schedule() {
 
   function handleConfirmAdd() {
     if (!selectedService || !selectedClient) return;
+    const technicianId = form.technicianId === UNASSIGNED ? null : form.technicianId;
     if (editingJobId) {
       updateJob(editingJobId, {
         title: computedTitle,
@@ -293,7 +328,7 @@ export default function Schedule() {
           schedule.find((j) => j.id === editingJobId)?.status ?? "scheduled",
         date: form.date,
         time: form.time,
-        technicianId: form.technicianId,
+        technicianId,
         clientId: selectedClient.id,
         clientName: selectedClient.name,
         address: selectedClient.address,
@@ -307,7 +342,7 @@ export default function Schedule() {
         status: "scheduled",
         date: form.date,
         time: form.time,
-        technicianId: form.technicianId,
+        technicianId,
         clientId: selectedClient.id,
         clientName: selectedClient.name,
         address: selectedClient.address,
@@ -334,6 +369,10 @@ export default function Schedule() {
         title="Technician Scheduling"
         description="Visualize field team availability to avoid overbooking."
         actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <FileUp className="h-4 w-4" /> Import CSV
+            </Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button
@@ -424,6 +463,9 @@ export default function Schedule() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        {form.type === "Survey" && (
+                          <SelectItem value={UNASSIGNED}>Unassigned (open for any technician)</SelectItem>
+                        )}
                         {technicians.map((t) => (
                           <SelectItem key={t.id} value={t.id}>
                             {t.name}
@@ -503,7 +545,19 @@ export default function Schedule() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         }
+      />
+
+      <CsvImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        title="Import schedule jobs"
+        description="Leave technicianId blank for an unassigned Survey job any technician can claim."
+        templateHeaders={SCHEDULE_CSV_HEADERS}
+        templateSampleRow={["Survey — Example Client", "Survey", "2026-09-01", "9:00 AM", "", "", "New client wants a quote"]}
+        templateFilename="schedule-import-template.csv"
+        onImport={handleScheduleImport}
       />
 
       <Tabs defaultValue="schedule">
@@ -849,7 +903,9 @@ export default function Schedule() {
             <div className="flex justify-between gap-3">
               <span className="text-ink-500">Technician</span>
               <span className="text-right text-ink-700">
-                {technicians.find((t) => t.id === form.technicianId)?.name}
+                {form.technicianId === UNASSIGNED
+                  ? "Unassigned (open for any technician)"
+                  : technicians.find((t) => t.id === form.technicianId)?.name}
               </span>
             </div>
           </div>
@@ -935,7 +991,7 @@ export default function Schedule() {
                           </AvatarFallback>
                         </Avatar>
                         <span className="text-xs text-ink-600">
-                          {tech?.name}
+                          {activeJob.technicianId ? tech?.name : "Unassigned"}
                         </span>
                       </div>
                     );
@@ -1076,7 +1132,9 @@ function JobCard({
                 {tech ? initials(tech.name) : "?"}
               </AvatarFallback>
             </Avatar>
-            <span className="text-xs text-ink-600">{tech?.name}</span>
+            <span className="text-xs text-ink-600">
+              {job.technicianId ? tech?.name : "Unassigned"}
+            </span>
           </div>
           {job.status === "scheduled" && (
             <Button

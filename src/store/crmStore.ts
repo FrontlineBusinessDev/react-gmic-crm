@@ -4,6 +4,9 @@ import type {
   Lead,
   LeadStage,
   InventoryItem,
+  InventoryCategoryDefinition,
+  PurchaseBatch,
+  PurchaseBatchLine,
   ScheduleJob,
   Invoice,
   PaymentRecord,
@@ -24,6 +27,8 @@ import type {
 import { mockClients } from "@/data/clients";
 import { mockLeads } from "@/data/leads";
 import { mockInventory } from "@/data/inventory";
+import { mockInventoryCategories } from "@/data/inventoryCategories";
+import { mockPurchaseBatches } from "@/data/purchaseBatches";
 import { mockSchedule } from "@/data/schedule";
 import { mockInvoices } from "@/data/invoices";
 import { mockActivity } from "@/data/activity";
@@ -84,6 +89,8 @@ interface CrmState {
   clients: Client[];
   leads: Lead[];
   inventory: InventoryItem[];
+  inventoryCategories: InventoryCategoryDefinition[];
+  purchaseBatches: PurchaseBatch[];
   schedule: ScheduleJob[];
   invoices: Invoice[];
   invoiceNumberFormat: string;
@@ -105,7 +112,11 @@ interface CrmState {
   convertLeadToClient: (leadId: string) => string | null;
 
   // Clients / Units
-  addClient: (client: Omit<Client, "id" | "createdAt" | "units" | "balance" | "totalBilled" | "totalPaid">) => string;
+  addClient: (
+    client: Omit<Client, "id" | "createdAt" | "units" | "balance" | "totalBilled" | "totalPaid"> & {
+      units?: Omit<Unit, "id" | "serviceHistory">[];
+    }
+  ) => string;
   updateClient: (id: string, updates: Partial<Omit<Client, "id">>) => void;
   archiveClient: (id: string) => void;
   restoreClient: (id: string) => void;
@@ -122,6 +133,18 @@ interface CrmState {
   updateInventoryItem: (id: string, updates: Partial<Omit<InventoryItem, "id">>) => void;
   archiveInventoryItem: (id: string) => void;
   restoreInventoryItem: (id: string) => void;
+  deductBomForSale: (inventoryItemId: string, quantitySold: number) => void;
+
+  // Inventory Categories
+  addInventoryCategory: (input: { name: string; tracksSerials?: boolean }) => string;
+  updateInventoryCategory: (id: string, updates: Partial<Pick<InventoryCategoryDefinition, "name" | "tracksSerials">>) => void;
+  archiveInventoryCategory: (id: string) => boolean;
+  restoreInventoryCategory: (id: string) => void;
+
+  // Purchase Batches
+  addPurchaseBatch: (input: { supplier: string; lines: Omit<PurchaseBatchLine, "id">[] }) => string;
+  receivePurchaseBatch: (id: string) => void;
+  cancelPurchaseBatch: (id: string) => void;
 
   // Reorder Requests
   addReorderRequest: (input: { inventoryItemId: string; quantityRequested: number; notes?: string }) => void;
@@ -158,6 +181,7 @@ interface CrmState {
   updateJob: (jobId: string, updates: Omit<ScheduleJob, "id">) => void;
   updateJobStatus: (jobId: string, status: JobStatus) => InstallationOutcome | undefined;
   deleteJob: (jobId: string) => void;
+  claimJob: (jobId: string, technicianId: string) => boolean;
 
   // Billing
   addInvoice: (invoice: Omit<Invoice, "id" | "invoiceNumber"> & { invoiceNumber?: string }) => void;
@@ -180,6 +204,8 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   clients: mockClients,
   leads: mockLeads,
   inventory: mockInventory,
+  inventoryCategories: mockInventoryCategories,
+  purchaseBatches: mockPurchaseBatches,
   schedule: mockSchedule,
   invoices: mockInvoices,
   invoiceNumberFormat: "GMIC-{YYYY}-{seq}",
@@ -270,12 +296,13 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   },
 
   addClient: (client) => {
+    const { units: unitDrafts, ...clientData } = client;
     const id = nextId("c");
     const newClient: Client = {
-      ...client,
+      ...clientData,
       id,
       createdAt: new Date().toISOString().slice(0, 10),
-      units: [],
+      units: (unitDrafts ?? []).map((unit) => ({ ...unit, id: nextId("un"), serviceHistory: [] })),
       balance: 0,
       totalBilled: 0,
       totalPaid: 0,
@@ -390,6 +417,136 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     if (!item) return;
     set((s) => ({ inventory: s.inventory.map((i) => (i.id === id ? { ...i, status: "active" } : i)) }));
     get().logAudit({ module: "inventory", entityId: id, entityLabel: item.name, action: "restore", changes: [], actor: "You" });
+  },
+
+  // Decrements BOM-linked materials whenever `quantitySold` units of `inventoryItemId`
+  // are sold/installed — called from addInvoice for unit line items.
+  deductBomForSale: (inventoryItemId, quantitySold) => {
+    const item = get().inventory.find((i) => i.id === inventoryItemId);
+    if (!item?.bom?.length) return;
+    for (const line of item.bom) {
+      const material = get().inventory.find((i) => i.id === line.materialItemId);
+      if (!material) continue;
+      const deduction = line.quantityPerUnit * quantitySold;
+      const newQty = Math.max(0, material.quantityOnHand - deduction);
+      set((s) => ({
+        inventory: s.inventory.map((i) => (i.id === material.id ? { ...i, quantityOnHand: newQty } : i)),
+      }));
+      get().logAudit({
+        module: "inventory",
+        entityId: material.id,
+        entityLabel: material.name,
+        action: "update",
+        changes: [{ field: "quantityOnHand", oldValue: material.quantityOnHand, newValue: newQty }],
+        actor: "You",
+      });
+    }
+  },
+
+  addInventoryCategory: ({ name, tracksSerials }) => {
+    const id = nextId("cat");
+    const newCategory: InventoryCategoryDefinition = { id, name, status: "active", tracksSerials };
+    set((s) => ({ inventoryCategories: [...s.inventoryCategories, newCategory] }));
+    get().logAudit({ module: "inventoryCategory", entityId: id, entityLabel: name, action: "create", changes: [], actor: "You" });
+    return id;
+  },
+
+  updateInventoryCategory: (id, updates) => {
+    const before = get().inventoryCategories.find((c) => c.id === id);
+    set((s) => ({ inventoryCategories: s.inventoryCategories.map((c) => (c.id === id ? { ...c, ...updates } : c)) }));
+    const after = get().inventoryCategories.find((c) => c.id === id);
+    if (before && after) {
+      const changes = computeFieldDiff(before, after, ["name"]);
+      get().logAudit({ module: "inventoryCategory", entityId: id, entityLabel: after.name, action: "update", changes, actor: "You" });
+    }
+  },
+
+  // Archiving is blocked while any non-archived inventory item still uses this
+  // category, so items can't silently lose their category grouping.
+  archiveInventoryCategory: (id) => {
+    const category = get().inventoryCategories.find((c) => c.id === id);
+    if (!category) return false;
+    const inUse = get().inventory.some((i) => i.category === category.name && i.status !== "archived");
+    if (inUse) return false;
+    set((s) => ({ inventoryCategories: s.inventoryCategories.map((c) => (c.id === id ? { ...c, status: "archived" } : c)) }));
+    get().logAudit({ module: "inventoryCategory", entityId: id, entityLabel: category.name, action: "archive", changes: [], actor: "You" });
+    return true;
+  },
+
+  restoreInventoryCategory: (id) => {
+    const category = get().inventoryCategories.find((c) => c.id === id);
+    if (!category) return;
+    set((s) => ({ inventoryCategories: s.inventoryCategories.map((c) => (c.id === id ? { ...c, status: "active" } : c)) }));
+    get().logAudit({ module: "inventoryCategory", entityId: id, entityLabel: category.name, action: "restore", changes: [], actor: "You" });
+  },
+
+  addPurchaseBatch: ({ supplier, lines }) => {
+    const id = nextId("batch");
+    const seq = get().purchaseBatches.length + 1;
+    const batchNumber = `BATCH-${new Date().getFullYear()}-${String(seq).padStart(4, "0")}`;
+    const fullLines: PurchaseBatchLine[] = lines.map((line) => ({ ...line, id: nextId("bl") }));
+    const totalCost = fullLines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
+    const newBatch: PurchaseBatch = {
+      id,
+      batchNumber,
+      supplier,
+      lines: fullLines,
+      totalCost,
+      status: "open",
+      createdAt: new Date().toISOString(),
+      createdBy: "You",
+    };
+    set((s) => ({ purchaseBatches: [newBatch, ...s.purchaseBatches] }));
+    get().logAudit({ module: "purchaseBatch", entityId: id, entityLabel: batchNumber, action: "create", changes: [], actor: "You" });
+    return id;
+  },
+
+  // Receiving a batch increments stock for each line, records last-cost, and
+  // appends any per-unit serials for categories that track them.
+  receivePurchaseBatch: (id) => {
+    const batch = get().purchaseBatches.find((b) => b.id === id);
+    if (!batch || batch.status !== "open") return;
+    const receivedAt = new Date().toISOString();
+    set((s) => ({
+      purchaseBatches: s.purchaseBatches.map((b) => (b.id === id ? { ...b, status: "received", receivedAt } : b)),
+    }));
+    for (const line of batch.lines) {
+      const item = get().inventory.find((i) => i.id === line.inventoryItemId);
+      if (!item) continue;
+      const newQty = item.quantityOnHand + line.quantity;
+      const newSerialized = line.serials?.length
+        ? [
+            ...(item.serializedUnits ?? []),
+            ...line.serials.map((serial) => ({ id: nextId("su"), serial, status: "in_stock" as const })),
+          ]
+        : item.serializedUnits;
+      set((s) => ({
+        inventory: s.inventory.map((i) =>
+          i.id === item.id
+            ? { ...i, quantityOnHand: newQty, unitCost: line.unitCost, serializedUnits: newSerialized }
+            : i
+        ),
+      }));
+      get().logAudit({
+        module: "inventory",
+        entityId: item.id,
+        entityLabel: item.name,
+        action: "update",
+        changes: [
+          { field: "quantityOnHand", oldValue: item.quantityOnHand, newValue: newQty },
+          { field: "unitCost", oldValue: item.unitCost, newValue: line.unitCost },
+        ],
+        actor: "You",
+      });
+    }
+    get().logAudit({ module: "purchaseBatch", entityId: id, entityLabel: batch.batchNumber, action: "update", changes: [{ field: "status", oldValue: "open", newValue: "received" }], actor: "You" });
+  },
+
+  cancelPurchaseBatch: (id) => {
+    const batch = get().purchaseBatches.find((b) => b.id === id);
+    if (!batch || batch.status !== "open") return;
+    set((s) => ({ purchaseBatches: s.purchaseBatches.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)) }));
+    get().logAudit({ module: "purchaseBatch", entityId: id, entityLabel: batch.batchNumber, action: "update", changes: [{ field: "status", oldValue: "open", newValue: "cancelled" }], actor: "You" });
   },
 
   addReorderRequest: ({ inventoryItemId, quantityRequested, notes }) => {
@@ -683,7 +840,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         ? `${after.title} was reassigned to you — ${after.date} at ${after.time}`
         : `${after.title} was updated — ${after.date} at ${after.time}`,
       targetRoles: ["technician"],
-      userId: after.technicianId,
+      userId: after.technicianId ?? undefined,
     });
   },
 
@@ -750,6 +907,25 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     get().logAudit({ module: "schedule", entityId: jobId, entityLabel: job.title, action: "delete", changes: [], actor: "You" });
   },
 
+  // Lets a technician claim an unassigned (open) Survey job. No-op if it's
+  // already claimed by someone else, to avoid a race between two technicians.
+  claimJob: (jobId, technicianId) => {
+    const job = get().schedule.find((j) => j.id === jobId);
+    if (!job || job.technicianId !== null) return false;
+    set((s) => ({ schedule: s.schedule.map((j) => (j.id === jobId ? { ...j, technicianId } : j)) }));
+    const techName = mockUsers.find((u) => u.id === technicianId)?.name ?? "a technician";
+    get().logActivity({ type: "note", message: `${job.title} claimed by ${techName}`, actor: "You" });
+    get().logAudit({
+      module: "schedule",
+      entityId: jobId,
+      entityLabel: job.title,
+      action: "update",
+      changes: [{ field: "technicianId", oldValue: null, newValue: technicianId }],
+      actor: "You",
+    });
+    return true;
+  },
+
   addInvoice: (invoice) => {
     const { invoiceNumber: manualNumber, ...invoiceData } = invoice;
     const num = manualNumber?.trim() || formatInvoiceNumber(get().invoiceNumberFormat, idCounter + 1);
@@ -759,6 +935,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     for (const item of invoice.items) {
       if (item.kind === "unit" && item.sourceId) {
         get().deductInventory(item.sourceId, item.qty);
+        get().deductBomForSale(item.sourceId, item.qty);
       }
     }
     get().logActivity({ type: "note", message: `Invoice ${num} created for ${invoice.clientName}`, actor: "You" });

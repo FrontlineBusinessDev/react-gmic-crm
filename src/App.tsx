@@ -13,6 +13,7 @@ import Schedule from "@/pages/technicians/Schedule";
 import MyJobs from "@/pages/technicians/MyJobs";
 import Parts from "@/pages/technicians/Parts";
 import Billing from "@/pages/billing/Billing";
+import Reports from "@/pages/reports/Reports";
 import Settings from "@/pages/settings/Settings";
 
 export default function App() {
@@ -113,6 +114,14 @@ export default function App() {
             element={
               <ProtectedRoute module="/billing">
                 <Billing />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <ProtectedRoute module="/reports">
+                <Reports />
               </ProtectedRoute>
             }
           />

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Truck, Search, X, Pencil, Archive, ArchiveRestore, Mail, Phone } from "lucide-react";
+import { Plus, Truck, Search, X, Pencil, Archive, ArchiveRestore, Mail, Phone, FileUp } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,11 +22,13 @@ import { SupplierStatusBadge } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Pagination } from "@/components/shared/pagination";
+import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import type { Supplier, SupplierStatus } from "@/types";
 
 const statusFilters: (SupplierStatus | "all")[] = ["all", "active", "archived"];
+const SUPPLIER_CSV_HEADERS = ["name", "contactPerson", "phone", "email", "address", "notes"];
 const emptyForm = {
   name: "",
   contactPerson: "",
@@ -43,6 +45,28 @@ export default function Suppliers() {
   const [open, setOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Supplier | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [importOpen, setImportOpen] = useState(false);
+
+  function handleSupplierImport(rows: Record<string, string>[]) {
+    const errors: string[] = [];
+    let successCount = 0;
+    rows.forEach((row, i) => {
+      if (!row.name || !row.contactPerson) {
+        errors.push(`Row ${i + 2}: missing required name or contactPerson.`);
+        return;
+      }
+      addSupplier({
+        name: row.name,
+        contactPerson: row.contactPerson,
+        phone: row.phone ?? "",
+        email: row.email ?? "",
+        address: row.address ?? "",
+        notes: row.notes || undefined,
+      });
+      successCount++;
+    });
+    return { successCount, errors };
+  }
 
   const supplierAuditEntries = useMemo(() => auditLog.filter((e) => e.module === "supplier"), [auditLog]);
 
@@ -120,6 +144,10 @@ export default function Suppliers() {
         title="Suppliers"
         description="Vendors and contacts that stock the inventory catalog."
         actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <FileUp className="h-4 w-4" /> Import CSV
+            </Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button variant="brand" onClick={openAdd}><Plus className="h-4 w-4" /> Add Supplier</Button>
@@ -165,7 +193,18 @@ export default function Suppliers() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         }
+      />
+
+      <CsvImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        title="Import suppliers"
+        templateHeaders={SUPPLIER_CSV_HEADERS}
+        templateSampleRow={["Example Supply Co.", "Maria Santos", "0917 000 0000", "sales@example.com", "123 Industrial Rd., Sta. Rosa, Laguna", "Net 30 terms"]}
+        templateFilename="suppliers-import-template.csv"
+        onImport={handleSupplierImport}
       />
 
       <Tabs defaultValue="list">

@@ -12,16 +12,18 @@ import { Pagination } from "@/components/shared/pagination";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { cn } from "@/lib/utils";
-import type { InventoryCategory } from "@/types";
-
-const categories: (InventoryCategory | "all")[] = ["all", "AC Unit", "Material", "Spare Part"];
 
 export default function Parts() {
-  const { inventory } = useCrmStore();
+  const { inventory, inventoryCategories } = useCrmStore();
   const [query, setQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<(typeof categories)[number]>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [supplierFilter, setSupplierFilter] = useState("all");
   const [lowStockOnly, setLowStockOnly] = useState(false);
+
+  const categories = useMemo(
+    () => ["all", ...inventoryCategories.filter((c) => c.status === "active").map((c) => c.name)],
+    [inventoryCategories]
+  );
 
   const activeItems = useMemo(() => inventory.filter((i) => (i.status ?? "active") === "active"), [inventory]);
 

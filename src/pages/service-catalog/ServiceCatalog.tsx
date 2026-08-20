@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plus, Wrench, Search, X, Pencil, Archive, ArchiveRestore } from "lucide-react";
+import { Plus, Wrench, Search, X, Pencil, Archive, ArchiveRestore, FileUp } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import { ServiceCatalogStatusBadge } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Pagination } from "@/components/shared/pagination";
+import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { formatCurrency } from "@/lib/utils";
@@ -31,6 +32,7 @@ import type { ServiceCatalogItem, ServiceCatalogStatus } from "@/types";
 
 const emptyForm = { name: "", description: "", samplePrice: "" };
 const statusFilters: (ServiceCatalogStatus | "all")[] = ["all", "active", "archived"];
+const SERVICE_CSV_HEADERS = ["name", "description", "samplePrice"];
 
 export default function ServiceCatalog() {
   const { serviceCatalog, addServiceCatalogItem, updateServiceCatalogItem, archiveServiceCatalogItem, restoreServiceCatalogItem, auditLog } = useCrmStore();
@@ -52,6 +54,25 @@ export default function ServiceCatalog() {
   const [open, setOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ServiceCatalogItem | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [importOpen, setImportOpen] = useState(false);
+
+  function handleServiceImport(rows: Record<string, string>[]) {
+    const errors: string[] = [];
+    let successCount = 0;
+    rows.forEach((row, i) => {
+      if (!row.name) {
+        errors.push(`Row ${i + 2}: missing required name.`);
+        return;
+      }
+      addServiceCatalogItem({
+        name: row.name,
+        description: row.description ?? "",
+        samplePrice: Number(row.samplePrice) || 0,
+      });
+      successCount++;
+    });
+    return { successCount, errors };
+  }
 
   const serviceAuditEntries = useMemo(() => auditLog.filter((e) => e.module === "serviceCatalog"), [auditLog]);
 
@@ -107,6 +128,10 @@ export default function ServiceCatalog() {
         title="Service Catalog"
         description="Services offered to clients, with description and sample pricing."
         actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <FileUp className="h-4 w-4" /> Import CSV
+            </Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button variant="brand" onClick={openAdd}>
@@ -150,7 +175,18 @@ export default function ServiceCatalog() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         }
+      />
+
+      <CsvImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        title="Import service catalog"
+        templateHeaders={SERVICE_CSV_HEADERS}
+        templateSampleRow={["Cleaning (PMS)", "Preventive maintenance cleaning for one AC unit", "1200"]}
+        templateFilename="service-catalog-import-template.csv"
+        onImport={handleServiceImport}
       />
 
       <Tabs defaultValue="list">

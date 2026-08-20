@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import type { LeadStage, UnitStatus, InvoiceStatus, JobStatus, ClientStatus, InventoryStatus, ServiceCatalogStatus, SupplierStatus, UserStatus, RoleStatus, ReorderRequestStatus } from "@/types";
+import type { LeadStage, UnitStatus, InvoiceStatus, JobStatus, ClientStatus, InventoryStatus, ServiceCatalogStatus, SupplierStatus, UserStatus, RoleStatus, ReorderRequestStatus, RecommendationSeverity } from "@/types";
 
 const leadStageMap: Record<LeadStage, { label: string; variant: "secondary" | "info" | "warning" | "success" | "destructive" }> = {
   inquiry: { label: "Inquiry", variant: "secondary" },
@@ -114,6 +114,17 @@ export function InventoryStatusBadge({ status }: { status: InventoryStatus }) {
 
 export function ServiceCatalogStatusBadge({ status }: { status: ServiceCatalogStatus }) {
   const { label, variant } = serviceCatalogStatusMap[status];
+  return <Badge variant={variant}>{label}</Badge>;
+}
+
+const recommendationSeverityMap: Record<RecommendationSeverity, { label: string; variant: "secondary" | "info" | "warning" | "success" | "destructive" }> = {
+  info: { label: "Info", variant: "info" },
+  warning: { label: "Warning", variant: "warning" },
+  critical: { label: "Critical", variant: "destructive" },
+};
+
+export function RecommendationSeverityBadge({ severity }: { severity: RecommendationSeverity }) {
+  const { label, variant } = recommendationSeverityMap[severity];
   return <Badge variant={variant}>{label}</Badge>;
 }
 

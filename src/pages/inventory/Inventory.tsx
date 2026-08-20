@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plus, AlertTriangle, Boxes, Search, X, Pencil, Archive, ArchiveRestore, PackagePlus, Mail, PhoneCall, Truck, Ban, PackageCheck, Upload, Download, Printer, FileText, Eye, ArrowUpDown } from "lucide-react";
+import { Plus, AlertTriangle, Boxes, Search, X, Pencil, Archive, ArchiveRestore, PackagePlus, Mail, PhoneCall, Truck, Ban, PackageCheck, Download, Printer, FileText, Eye, ArrowUpDown, Settings2, PackageOpen, PackageX, Wrench, FileUp } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,10 +25,14 @@ import { InventoryStatusBadge, ReorderRequestStatusBadge } from "@/components/sh
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Pagination } from "@/components/shared/pagination";
+import { FileDropZone } from "@/components/shared/file-drop-zone";
+import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { formatCurrency } from "@/lib/utils";
-import type { InventoryCategory, InventoryItem, InventoryStatus, ReorderRequest, ReorderRequestStatus, DeliveryProof } from "@/types";
+import type { InventoryCategory, InventoryItem, InventoryStatus, ReorderRequest, ReorderRequestStatus, DeliveryProof, BomLine, PurchaseBatchLine } from "@/types";
+
+const INVENTORY_CSV_HEADERS = ["sku", "name", "category", "quantityOnHand", "reorderLevel", "unitCost", "unitPrice", "supplier"];
 
 function isImageProof(type: string) {
   return type.startsWith("image/");
@@ -48,28 +52,41 @@ function cancelEmailTemplate(itemName: string, sku: string, qty: number) {
   };
 }
 
-const categories: (InventoryCategory | "All")[] = ["All", "AC Unit", "Material", "Spare Part"];
 const statusFilters: (InventoryStatus | "all")[] = ["all", "active", "archived"];
 const reorderStatusFilters: (ReorderRequestStatus | "all")[] = ["all", "requested", "ordered", "delivered", "cancelled"];
 const emptyForm = {
   name: "",
   sku: "",
-  category: "Material" as InventoryCategory,
+  category: "" as InventoryCategory,
   quantityOnHand: "",
   reorderLevel: "",
   unitCost: "",
   unitPrice: "",
   supplier: "",
+  bom: [] as BomLine[],
+};
+const emptyBatchForm = {
+  supplier: "",
+  lines: [] as (Omit<PurchaseBatchLine, "id"> & { key: string; serialsInput: string })[],
 };
 
 export default function Inventory() {
   const {
     inventory,
+    inventoryCategories,
+    purchaseBatches,
     suppliers,
     addInventoryItem,
     updateInventoryItem,
     archiveInventoryItem,
     restoreInventoryItem,
+    addInventoryCategory,
+    updateInventoryCategory,
+    archiveInventoryCategory,
+    restoreInventoryCategory,
+    addPurchaseBatch,
+    receivePurchaseBatch,
+    cancelPurchaseBatch,
     auditLog,
     reorderRequests,
     addReorderRequest,
@@ -77,7 +94,49 @@ export default function Inventory() {
     markReorderDelivered,
     cancelReorderRequest,
   } = useCrmStore();
-  const [tab, setTab] = useState<(typeof categories)[number]>("All");
+
+  const activeCategories = useMemo(
+    () => inventoryCategories.filter((c) => c.status === "active"),
+    [inventoryCategories]
+  );
+  const categories = useMemo(() => ["All", ...activeCategories.map((c) => c.name)], [activeCategories]);
+  const [tab, setTab] = useState<string>("All");
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [categoryEditId, setCategoryEditId] = useState<string | null>(null);
+  const [categoryEditName, setCategoryEditName] = useState("");
+
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchForm, setBatchForm] = useState(emptyBatchForm);
+  const [importOpen, setImportOpen] = useState(false);
+
+  function handleInventoryImport(rows: Record<string, string>[]) {
+    const errors: string[] = [];
+    let successCount = 0;
+    const validCategoryNames = new Set(activeCategories.map((c) => c.name));
+    rows.forEach((row, i) => {
+      if (!row.name || !row.sku) {
+        errors.push(`Row ${i + 2}: missing required name or sku.`);
+        return;
+      }
+      if (!validCategoryNames.has(row.category)) {
+        errors.push(`Row ${i + 2}: category "${row.category}" doesn't match an existing category.`);
+        return;
+      }
+      addInventoryItem({
+        name: row.name,
+        sku: row.sku,
+        category: row.category,
+        quantityOnHand: Number(row.quantityOnHand) || 0,
+        reorderLevel: Number(row.reorderLevel) || 0,
+        unitCost: Number(row.unitCost) || 0,
+        unitPrice: Number(row.unitPrice) || 0,
+        supplier: row.supplier ?? "",
+      });
+      successCount++;
+    });
+    return { successCount, errors };
+  }
   const [query, setQuery] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   // Deep-link support: /inventory?q=<name> (e.g. from the global search) prefills the search box.
@@ -115,7 +174,6 @@ export default function Inventory() {
 
   const [deliverTarget, setDeliverTarget] = useState<ReorderRequest | null>(null);
   const [deliveryProofDraft, setDeliveryProofDraft] = useState<DeliveryProof | null>(null);
-  const deliveryProofInputRef = useRef<HTMLInputElement>(null);
   const [previewProof, setPreviewProof] = useState<DeliveryProof | null>(null);
 
   const inventoryAuditEntries = useMemo(
@@ -225,8 +283,8 @@ export default function Inventory() {
     setDeliveryProofDraft(null);
   }
 
-  function handleDeliveryProofSelect(files: FileList | null) {
-    const file = files?.[0];
+  function handleDeliveryProofSelect(files: File[]) {
+    const file = files[0];
     if (!file) return;
     setDeliveryProofDraft({ url: URL.createObjectURL(file), name: file.name, type: file.type });
   }
@@ -234,7 +292,6 @@ export default function Inventory() {
   function clearDeliveryProofDraft() {
     if (deliveryProofDraft) URL.revokeObjectURL(deliveryProofDraft.url);
     setDeliveryProofDraft(null);
-    if (deliveryProofInputRef.current) deliveryProofInputRef.current.value = "";
   }
 
   function confirmMarkDelivered() {
@@ -285,7 +342,7 @@ export default function Inventory() {
 
   function openAdd() {
     setEditTarget(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, category: activeCategories[0]?.name ?? "" });
     setOpen(true);
   }
 
@@ -300,8 +357,29 @@ export default function Inventory() {
       unitCost: String(item.unitCost),
       unitPrice: String(item.unitPrice),
       supplier: item.supplier,
+      bom: item.bom ?? [],
     });
     setOpen(true);
+  }
+
+  const selectedFormCategory = inventoryCategories.find((c) => c.name === form.category);
+  const bomEligibleItems = useMemo(
+    () => inventory.filter((i) => (i.status ?? "active") === "active" && i.id !== editTarget?.id),
+    [inventory, editTarget]
+  );
+
+  function addBomLine() {
+    const first = bomEligibleItems[0];
+    if (!first) return;
+    setForm((f) => ({ ...f, bom: [...f.bom, { id: `tmp-${Date.now()}`, materialItemId: first.id, quantityPerUnit: 1 }] }));
+  }
+
+  function updateBomLine(id: string, updates: Partial<BomLine>) {
+    setForm((f) => ({ ...f, bom: f.bom.map((l) => (l.id === id ? { ...l, ...updates } : l)) }));
+  }
+
+  function removeBomLine(id: string) {
+    setForm((f) => ({ ...f, bom: f.bom.filter((l) => l.id !== id) }));
   }
 
   function handleSave() {
@@ -315,6 +393,7 @@ export default function Inventory() {
       unitCost: Number(form.unitCost) || 0,
       unitPrice: Number(form.unitPrice) || 0,
       supplier: form.supplier,
+      bom: selectedFormCategory?.tracksSerials ? form.bom : undefined,
     };
     if (editTarget) {
       updateInventoryItem(editTarget.id, payload);
@@ -326,12 +405,66 @@ export default function Inventory() {
     setOpen(false);
   }
 
+  function openCategoryManager() {
+    setNewCategoryName("");
+    setCategoryEditId(null);
+    setCategoryManagerOpen(true);
+  }
+
+  function saveCategoryRename(id: string) {
+    if (!categoryEditName.trim()) return;
+    updateInventoryCategory(id, { name: categoryEditName.trim() });
+    setCategoryEditId(null);
+  }
+
+  function openNewBatch() {
+    setBatchForm(emptyBatchForm);
+    setBatchOpen(true);
+  }
+
+  function addBatchLine() {
+    const first = inventory.find((i) => (i.status ?? "active") === "active");
+    if (!first) return;
+    setBatchForm((f) => ({
+      ...f,
+      lines: [...f.lines, { key: `bl-${Date.now()}`, inventoryItemId: first.id, itemName: first.name, quantity: 1, unitCost: first.unitCost, serialsInput: "" }],
+    }));
+  }
+
+  function updateBatchLine(key: string, updates: Partial<(typeof batchForm.lines)[number]>) {
+    setBatchForm((f) => ({ ...f, lines: f.lines.map((l) => (l.key === key ? { ...l, ...updates } : l)) }));
+  }
+
+  function removeBatchLine(key: string) {
+    setBatchForm((f) => ({ ...f, lines: f.lines.filter((l) => l.key !== key) }));
+  }
+
+  function handleSaveBatch() {
+    if (!batchForm.supplier || batchForm.lines.length === 0) return;
+    addPurchaseBatch({
+      supplier: batchForm.supplier,
+      lines: batchForm.lines.map((l) => ({
+        inventoryItemId: l.inventoryItemId,
+        itemName: l.itemName,
+        quantity: l.quantity,
+        unitCost: l.unitCost,
+        serials: l.serialsInput.split(",").map((s) => s.trim()).filter(Boolean),
+      })),
+    });
+    setBatchForm(emptyBatchForm);
+    setBatchOpen(false);
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Inventory"
         description="Units and materials, with automatic deduction on installation."
         actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <FileUp className="h-4 w-4" /> Import CSV
+            </Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button variant="brand" onClick={openAdd}><Plus className="h-4 w-4" /> Add Item</Button>
@@ -356,10 +489,10 @@ export default function Inventory() {
                   <div className="space-y-1.5">
                     <Label>Category</Label>
                     <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v as InventoryCategory })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
                       <SelectContent>
-                        {(["AC Unit", "Material", "Spare Part"] as const).map((c) => (
-                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        {activeCategories.map((c) => (
+                          <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -412,6 +545,48 @@ export default function Inventory() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {selectedFormCategory?.tracksSerials && (
+                  <div className="space-y-1.5 rounded-lg border border-ink-100 bg-ink-50/60 p-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="flex items-center gap-1.5">
+                        <Wrench className="h-3.5 w-3.5" /> Bill of Materials
+                      </Label>
+                      <Button type="button" size="sm" variant="outline" onClick={addBomLine} disabled={bomEligibleItems.length === 0}>
+                        <Plus className="h-3.5 w-3.5" /> Add material
+                      </Button>
+                    </div>
+                    <p className="text-xs text-ink-400">Materials consumed per unit sold — deducted automatically from stock when this item is invoiced.</p>
+                    {form.bom.length === 0 ? (
+                      <p className="text-xs text-ink-400 italic">No materials linked yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {form.bom.map((line) => (
+                          <div key={line.id} className="flex items-center gap-2">
+                            <Select value={line.materialItemId} onValueChange={(v) => updateBomLine(line.id, { materialItemId: v })}>
+                              <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {bomEligibleItems.map((i) => (
+                                  <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={line.quantityPerUnit}
+                              onChange={(e) => updateBomLine(line.id, { quantityPerUnit: Number(e.target.value) || 1 })}
+                              className="w-20"
+                            />
+                            <Button type="button" size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-ink-400" onClick={() => removeBomLine(line.id)}>
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
@@ -419,12 +594,25 @@ export default function Inventory() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         }
+      />
+
+      <CsvImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        title="Import inventory items"
+        description="Category values must match an existing active category name exactly."
+        templateHeaders={INVENTORY_CSV_HEADERS}
+        templateSampleRow={["MAT-EXAMPLE-01", "Example Copper Fitting", "Material", "50", "20", "150", "220", "Laguna Pipe & Fitting Supply"]}
+        templateFilename="inventory-import-template.csv"
+        onImport={handleInventoryImport}
       />
 
       <Tabs defaultValue="list">
         <TabsList>
           <TabsTrigger value="list">Inventory</TabsTrigger>
+          <TabsTrigger value="batches">Purchase Batches</TabsTrigger>
           <TabsTrigger value="reorders">
             Reorder Requests
             {reorderRequests.some((r) => r.status === "requested" || r.status === "ordered") && (
@@ -433,6 +621,9 @@ export default function Inventory() {
               </Badge>
             )}
           </TabsTrigger>
+          <Button variant="outline" size="sm" onClick={openCategoryManager} className="ml-1">
+            <Settings2 className="h-3.5 w-3.5" /> Manage Categories
+          </Button>
           <TabsTrigger value="audit">Audit Trail</TabsTrigger>
         </TabsList>
 
@@ -595,6 +786,91 @@ export default function Inventory() {
               )}
             </TabsContent>
           </Tabs>
+        </TabsContent>
+
+        <TabsContent value="batches" className="space-y-6">
+          <div className="mb-4 flex justify-end">
+            <Button variant="brand" size="sm" onClick={openNewBatch}>
+              <Plus className="h-3.5 w-3.5" /> New Batch
+            </Button>
+          </div>
+          {purchaseBatches.length === 0 ? (
+            <EmptyState icon={PackageOpen} title="No purchase batches yet" description="Record a batch to track cost and serials for a supplier delivery." />
+          ) : (
+            <Card>
+              <MobileList>
+                {purchaseBatches.map((batch) => (
+                  <MobileListCard key={batch.id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-ink-800">{batch.batchNumber}</p>
+                        <p className="text-xs text-ink-400">{batch.supplier}</p>
+                      </div>
+                      <Badge variant={batch.status === "received" ? "success" : batch.status === "cancelled" ? "destructive" : "warning"}>
+                        {batch.status}
+                      </Badge>
+                    </div>
+                    <MobileListRow label="Lines">{batch.lines.length}</MobileListRow>
+                    <MobileListRow label="Total cost">{formatCurrency(batch.totalCost)}</MobileListRow>
+                    <MobileListRow label="Created">{new Date(batch.createdAt).toLocaleDateString()}</MobileListRow>
+                    {batch.status === "open" && (
+                      <div className="flex items-center justify-end gap-1 pt-1">
+                        <Button size="sm" variant="brand" onClick={() => receivePurchaseBatch(batch.id)}>
+                          <PackageCheck className="h-3.5 w-3.5" /> Mark Received
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => cancelPurchaseBatch(batch.id)}>
+                          <PackageX className="h-3.5 w-3.5" /> Cancel
+                        </Button>
+                      </div>
+                    )}
+                  </MobileListCard>
+                ))}
+              </MobileList>
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Batch #</TableHead>
+                      <TableHead>Supplier</TableHead>
+                      <TableHead>Lines</TableHead>
+                      <TableHead>Total Cost</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Received</TableHead>
+                      <TableHead />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {purchaseBatches.map((batch) => (
+                      <TableRow key={batch.id}>
+                        <TableCell className="font-medium text-ink-800">{batch.batchNumber}</TableCell>
+                        <TableCell className="text-sm text-ink-600">{batch.supplier}</TableCell>
+                        <TableCell>{batch.lines.length}</TableCell>
+                        <TableCell>{formatCurrency(batch.totalCost)}</TableCell>
+                        <TableCell>
+                          <Badge variant={batch.status === "received" ? "success" : batch.status === "cancelled" ? "destructive" : "warning"}>
+                            {batch.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm text-ink-600">{batch.receivedAt ? new Date(batch.receivedAt).toLocaleDateString() : "—"}</TableCell>
+                        <TableCell>
+                          {batch.status === "open" && (
+                            <div className="flex items-center justify-end gap-1">
+                              <Button size="sm" variant="brand" onClick={() => receivePurchaseBatch(batch.id)}>
+                                <PackageCheck className="h-3.5 w-3.5" /> Mark Received
+                              </Button>
+                              <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => cancelPurchaseBatch(batch.id)}>
+                                <PackageX className="h-3.5 w-3.5" /> Cancel
+                              </Button>
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="reorders" className="space-y-6">
@@ -946,13 +1222,6 @@ export default function Inventory() {
           <div className="grid gap-3">
             <div className="space-y-1.5">
               <Label>Proof of delivery (optional)</Label>
-              <input
-                ref={deliveryProofInputRef}
-                type="file"
-                accept="image/*,.pdf"
-                className="hidden"
-                onChange={(e) => handleDeliveryProofSelect(e.target.files)}
-              />
               {deliveryProofDraft ? (
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-ink-100 bg-ink-50 p-3">
                   <div className="flex min-w-0 items-center gap-2">
@@ -968,19 +1237,173 @@ export default function Inventory() {
                   </Button>
                 </div>
               ) : (
-                <Button variant="outline" onClick={() => deliveryProofInputRef.current?.click()}>
-                  <Upload className="h-3.5 w-3.5" /> Upload receipt or photo
-                </Button>
+                <FileDropZone
+                  accept="image/*,.pdf"
+                  onFilesSelected={handleDeliveryProofSelect}
+                  label="Drag & drop a receipt or photo, or click to browse"
+                  hint="No photo/invoice uploaded — you can still confirm delivery without one."
+                />
               )}
-              <p className="text-xs text-ink-400">
-                {deliveryProofDraft ? "This will be attached to the request as delivery proof." : "No photo/invoice uploaded — you can still confirm delivery without one."}
-              </p>
+              {deliveryProofDraft && (
+                <p className="text-xs text-ink-400">This will be attached to the request as delivery proof.</p>
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeliverTarget(null)}>Cancel</Button>
             <Button variant="brand" onClick={confirmMarkDelivered}>
               <PackageCheck className="h-3.5 w-3.5" /> Confirm Delivery
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={categoryManagerOpen} onOpenChange={setCategoryManagerOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manage categories</DialogTitle>
+            <DialogDescription>Rename, add, or archive inventory categories. Archiving is blocked while an active item still uses one.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {inventoryCategories.map((cat) => (
+              <div key={cat.id} className="flex items-center gap-2 rounded-lg border border-ink-100 p-2">
+                {categoryEditId === cat.id ? (
+                  <Input
+                    autoFocus
+                    value={categoryEditName}
+                    onChange={(e) => setCategoryEditName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && saveCategoryRename(cat.id)}
+                    className="flex-1"
+                  />
+                ) : (
+                  <span className="flex-1 text-sm text-ink-700">
+                    {cat.name}
+                    {cat.status === "archived" && <span className="ml-1.5 text-xs text-ink-400">(archived)</span>}
+                  </span>
+                )}
+                {categoryEditId === cat.id ? (
+                  <Button size="sm" variant="outline" onClick={() => saveCategoryRename(cat.id)}>Save</Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setCategoryEditId(cat.id);
+                      setCategoryEditName(cat.name);
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {cat.status === "archived" ? (
+                  <Button size="sm" variant="ghost" className="text-brand-green-600" onClick={() => restoreInventoryCategory(cat.id)}>
+                    <ArchiveRestore className="h-3.5 w-3.5" />
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => archiveInventoryCategory(cat.id)}>
+                    <Archive className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 pt-2">
+            <Input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="New category name" />
+            <Button
+              variant="outline"
+              disabled={!newCategoryName.trim()}
+              onClick={() => {
+                addInventoryCategory({ name: newCategoryName.trim() });
+                setNewCategoryName("");
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCategoryManagerOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={batchOpen} onOpenChange={setBatchOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>New purchase batch</DialogTitle>
+            <DialogDescription>Record a supplier delivery with per-line cost and serial numbers.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="space-y-1.5">
+              <Label>Supplier</Label>
+              <Select value={batchForm.supplier || undefined} onValueChange={(v) => setBatchForm({ ...batchForm, supplier: v })}>
+                <SelectTrigger><SelectValue placeholder="Select a supplier" /></SelectTrigger>
+                <SelectContent>
+                  {suppliers.filter((s) => (s.status ?? "active") === "active").map((s) => (
+                    <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center justify-between">
+              <Label>Lines</Label>
+              <Button type="button" size="sm" variant="outline" onClick={addBatchLine}>
+                <Plus className="h-3.5 w-3.5" /> Add line
+              </Button>
+            </div>
+            {batchForm.lines.length === 0 ? (
+              <p className="text-xs text-ink-400 italic">No lines added yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {batchForm.lines.map((line) => {
+                  const item = inventory.find((i) => i.id === line.inventoryItemId);
+                  const tracksSerials = item && inventoryCategories.find((c) => c.name === item.category)?.tracksSerials;
+                  return (
+                    <div key={line.key} className="space-y-2 rounded-lg border border-ink-100 p-3">
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={line.inventoryItemId}
+                          onValueChange={(v) => {
+                            const selected = inventory.find((i) => i.id === v);
+                            updateBatchLine(line.key, { inventoryItemId: v, itemName: selected?.name ?? "", unitCost: selected?.unitCost ?? line.unitCost });
+                          }}
+                        >
+                          <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {inventory.filter((i) => (i.status ?? "active") === "active").map((i) => (
+                              <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button type="button" size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-ink-400" onClick={() => removeBatchLine(line.key)}>
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Quantity</Label>
+                          <Input type="number" min={1} value={line.quantity} onChange={(e) => updateBatchLine(line.key, { quantity: Number(e.target.value) || 1 })} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Unit cost (₱)</Label>
+                          <Input type="number" min={0} value={line.unitCost} onChange={(e) => updateBatchLine(line.key, { unitCost: Number(e.target.value) || 0 })} />
+                        </div>
+                      </div>
+                      {tracksSerials && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">Serial numbers (comma-separated, optional)</Label>
+                          <Input value={line.serialsInput} onChange={(e) => updateBatchLine(line.key, { serialsInput: e.target.value })} placeholder="GMI-IN-90001, GMI-IN-90002" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBatchOpen(false)}>Cancel</Button>
+            <Button variant="brand" disabled={!batchForm.supplier || batchForm.lines.length === 0} onClick={handleSaveBatch}>
+              Save Batch
             </Button>
           </DialogFooter>
         </DialogContent>

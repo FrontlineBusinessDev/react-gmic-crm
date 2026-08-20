@@ -110,9 +110,27 @@ export interface SurveyReport {
 
 // ---------- Inventory ----------
 
-export type InventoryCategory = "AC Unit" | "Material" | "Spare Part";
+// Category is a free-form id resolved against InventoryCategoryDefinition[] at
+// runtime — new categories can be created from Inventory without touching this type.
+export type InventoryCategory = string;
+
+export type InventoryCategoryStatus = "active" | "archived";
+
+export interface InventoryCategoryDefinition {
+  id: string;
+  name: string;
+  status: InventoryCategoryStatus;
+  /** Whether items in this category track individual serial numbers / BOM composition (e.g. AC Units). */
+  tracksSerials?: boolean;
+}
 
 export type InventoryStatus = "active" | "archived";
+
+export interface BomLine {
+  id: string;
+  materialItemId: string; // InventoryItem.id of the consumed material/spare part
+  quantityPerUnit: number;
+}
 
 export interface InventoryItem {
   id: string;
@@ -124,7 +142,8 @@ export interface InventoryItem {
   unitCost: number;
   unitPrice: number;
   supplier: string;
-  serializedUnits?: SerializedStockUnit[]; // for AC Unit category
+  serializedUnits?: SerializedStockUnit[]; // for categories with tracksSerials
+  bom?: BomLine[]; // materials this item consumes when sold/installed
   status?: InventoryStatus;
 }
 
@@ -197,7 +216,8 @@ export interface ScheduleJob {
   status: JobStatus;
   date: string; // ISO date
   time: string; // "9:00 AM"
-  technicianId: string;
+  /** null = unassigned/open job (currently only used for Survey jobs) — any technician can claim it. */
+  technicianId: string | null;
   clientId?: string;
   clientName: string;
   address: string;
@@ -270,10 +290,61 @@ export interface NotificationItem {
   link?: string;
 }
 
+// ---------- Purchase Batches ----------
+
+export interface PurchaseBatchLine {
+  id: string;
+  inventoryItemId: string;
+  itemName: string; // snapshot at batch time
+  quantity: number;
+  unitCost: number;
+  serials?: string[]; // per-unit serials, for categories that track them
+}
+
+export type PurchaseBatchStatus = "open" | "received" | "cancelled";
+
+export interface PurchaseBatch {
+  id: string;
+  batchNumber: string;
+  supplier: string; // matches Supplier.name
+  lines: PurchaseBatchLine[];
+  totalCost: number;
+  status: PurchaseBatchStatus;
+  createdAt: string;
+  createdBy: string;
+  receivedAt?: string;
+}
+
+// ---------- Reports ----------
+
+export type RecommendationKind = "reorder" | "follow_up" | "warranty_expiring" | "slow_moving";
+export type RecommendationSeverity = "info" | "warning" | "critical";
+
+export interface Recommendation {
+  id: string;
+  kind: RecommendationKind;
+  title: string;
+  detail: string;
+  relatedEntityId?: string; // clientId or inventoryItemId
+  severity: RecommendationSeverity;
+  generatedAt: string;
+}
+
 // ---------- Audit trail ----------
 
 export type AuditAction = "create" | "update" | "archive" | "restore" | "delete";
-export type AuditModule = "client" | "inventory" | "serviceCatalog" | "invoice" | "schedule" | "supplier" | "user" | "role" | "reorderRequest";
+export type AuditModule =
+  | "client"
+  | "inventory"
+  | "inventoryCategory"
+  | "purchaseBatch"
+  | "serviceCatalog"
+  | "invoice"
+  | "schedule"
+  | "supplier"
+  | "user"
+  | "role"
+  | "reorderRequest";
 
 export interface AuditFieldChange {
   field: string;

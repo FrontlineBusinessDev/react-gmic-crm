@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Wrench,
   PackageSearch,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 export interface NavItem {
@@ -31,6 +32,7 @@ export const navItems: NavItem[] = [
   { label: "Service Catalog", to: "/service-catalog", icon: Wrench },
   { label: "Scheduling", to: "/schedule", icon: CalendarClock },
   { label: "Billing", to: "/billing", icon: Receipt },
+  { label: "Reports", to: "/reports", icon: BarChart3 },
   { label: "Settings", to: "/settings", icon: Settings },
 ];
 

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plus, Receipt, Download, Wallet, Search, X, Settings as SettingsIcon, Upload, Paperclip, ChevronDown, ChevronUp, History } from "lucide-react";
+import { Plus, Receipt, Download, Wallet, Search, X, Settings as SettingsIcon, Paperclip, ChevronDown, ChevronUp, History, FileUp } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,8 +24,10 @@ import { Badge } from "@/components/ui/badge";
 import { InvoiceStatusBadge } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
+import { FileDropZone } from "@/components/shared/file-drop-zone";
 import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
+import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -33,6 +35,7 @@ import { exportInvoicePdf } from "@/lib/invoice-pdf";
 import type { Invoice, InvoiceStatus, PaymentRecord } from "@/types";
 
 const statusFilters: (InvoiceStatus | "all")[] = ["all", "unpaid", "partial", "paid", "overdue"];
+const BILLING_CSV_HEADERS = ["invoiceNumber", "clientId", "issueDate", "dueDate", "description", "qty", "unitPrice"];
 
 function isImageFileName(name?: string) {
   if (!name) return true;
@@ -87,7 +90,6 @@ export default function Billing() {
   const [proofFileName, setProofFileName] = useState<string | null>(null);
   const [paidWithoutProof, setPaidWithoutProof] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
-  const proofInputRef = useRef<HTMLInputElement>(null);
   const [invoiceTab, setInvoiceTab] = useState<"unit" | "service">("unit");
   const [form, setForm] = useState({ clientId: "", sourceId: "", description: "", qty: "1", unitPrice: "", dueDate: "" });
   const [customizeInvoiceNumber, setCustomizeInvoiceNumber] = useState(false);
@@ -98,6 +100,47 @@ export default function Billing() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<(typeof statusFilters)[number]>("all");
+  const [importOpen, setImportOpen] = useState(false);
+
+  function handleBillingImport(rows: Record<string, string>[]) {
+    const errors: string[] = [];
+    let successCount = 0;
+    const groups = new Map<string, Record<string, string>[]>();
+    rows.forEach((row, i) => {
+      const key = row.invoiceNumber?.trim();
+      if (!key || !row.clientId || !row.description) {
+        errors.push(`Row ${i + 2}: missing required invoiceNumber, clientId, or description.`);
+        return;
+      }
+      const group = groups.get(key) ?? [];
+      group.push(row);
+      groups.set(key, group);
+    });
+    for (const [invoiceNumber, group] of groups) {
+      const client = clients.find((c) => c.id === group[0].clientId);
+      if (!client) {
+        errors.push(`Invoice ${invoiceNumber}: client "${group[0].clientId}" not found.`);
+        continue;
+      }
+      addInvoice({
+        invoiceNumber,
+        clientId: client.id,
+        clientName: client.name,
+        issueDate: group[0].issueDate || new Date().toISOString().slice(0, 10),
+        dueDate: group[0].dueDate || new Date().toISOString().slice(0, 10),
+        items: group.map((row, i) => ({
+          id: `li-${invoiceNumber}-${i}`,
+          description: row.description,
+          qty: Number(row.qty) || 1,
+          unitPrice: Number(row.unitPrice) || 0,
+        })),
+        amountPaid: 0,
+        status: "unpaid",
+      });
+      successCount += group.length;
+    }
+    return { successCount, errors };
+  }
   const [searchParams, setSearchParams] = useSearchParams();
   // Deep-link support: /billing?q=<invoice#> (e.g. from the global search) prefills the search box.
   const consumedQueryParam = useRef<string | null>(null);
@@ -216,8 +259,8 @@ export default function Billing() {
     setPayOpen(null);
   }
 
-  function handleProofSelect(files: FileList | null) {
-    const file = files?.[0];
+  function handleProofSelect(files: File[]) {
+    const file = files[0];
     if (!file) return;
     if (proofUrl) URL.revokeObjectURL(proofUrl);
     setProofUrl(URL.createObjectURL(file));
@@ -260,6 +303,9 @@ export default function Billing() {
           <div className="flex items-center gap-2">
             <Button variant="outline" size="icon" title="Invoice number settings" onClick={() => { setFormatDraft(invoiceNumberFormat); setInvoiceSettingsOpen(true); }}>
               <SettingsIcon className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <FileUp className="h-4 w-4" /> Import CSV
             </Button>
             <Dialog open={addOpen} onOpenChange={(o) => (o ? openAddInvoice() : setAddOpen(false))}>
               <DialogTrigger asChild>
@@ -368,6 +414,17 @@ export default function Billing() {
             </Dialog>
           </div>
         }
+      />
+
+      <CsvImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        title="Import invoices"
+        description="Rows sharing the same invoiceNumber become line items on one invoice."
+        templateHeaders={BILLING_CSV_HEADERS}
+        templateSampleRow={["INV-EXAMPLE-001", "c-001", "2026-08-19", "2026-09-18", "PMS Cleaning — Split Unit", "1", "1200"]}
+        templateFilename="billing-import-template.csv"
+        onImport={handleBillingImport}
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -608,16 +665,6 @@ export default function Billing() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Proof of payment</Label>
-                  <input
-                    ref={proofInputRef}
-                    type="file"
-                    accept="image/*,.pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      handleProofSelect(e.target.files);
-                      e.target.value = "";
-                    }}
-                  />
                   {proofUrl ? (
                     <div className="flex items-center justify-between gap-2 rounded-lg border border-ink-100 bg-ink-50/60 px-3 py-2">
                       <div className="flex min-w-0 items-center gap-2 text-sm text-ink-700">
@@ -629,9 +676,13 @@ export default function Billing() {
                       </Button>
                     </div>
                   ) : (
-                    <Button type="button" variant="outline" size="sm" onClick={() => proofInputRef.current?.click()} disabled={paidWithoutProof}>
-                      <Upload className="h-3.5 w-3.5" /> Attach Proof
-                    </Button>
+                    <FileDropZone
+                      accept="image/*,.pdf"
+                      disabled={paidWithoutProof}
+                      onFilesSelected={handleProofSelect}
+                      label="Drag & drop a receipt or photo, or click to browse"
+                      hint="Image or PDF"
+                    />
                   )}
                   <label className="flex cursor-pointer items-center gap-2 pt-1 text-xs text-ink-500">
                     <input
