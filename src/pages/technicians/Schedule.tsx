@@ -188,6 +188,7 @@ export default function Schedule() {
   const [dateScope, setDateScope] = useState<"all" | "today" | "week">("all");
 
   const UNASSIGNED = "unassigned";
+  const NO_UNIT = "no-unit";
   const emptyForm = {
     serviceId: "",
     type: "Survey" as JobType,
@@ -195,10 +196,12 @@ export default function Schedule() {
     time: "9:00 AM",
     technicianId: technicians[0]?.id ?? UNASSIGNED,
     clientId: "",
+    unitId: "",
     notes: "",
   };
   const [form, setForm] = useState(emptyForm);
   const selectedClient = clients.find((c) => c.id === form.clientId);
+  const selectedUnit = selectedClient?.units.find((u) => u.id === form.unitId);
   const selectedService = serviceCatalog.find((s) => s.id === form.serviceId);
   const computedTitle =
     selectedService && selectedClient
@@ -306,6 +309,7 @@ export default function Schedule() {
       time: job.time,
       technicianId: job.technicianId ?? UNASSIGNED,
       clientId: job.clientId ?? "",
+      unitId: job.unitId ?? "",
       notes: job.notes,
     });
     setActiveJob(null);
@@ -332,6 +336,7 @@ export default function Schedule() {
         clientId: selectedClient.id,
         clientName: selectedClient.name,
         address: selectedClient.address,
+        unitId: selectedUnit?.id,
         notes: form.notes,
         serviceId: selectedService.id,
       });
@@ -346,6 +351,7 @@ export default function Schedule() {
         clientId: selectedClient.id,
         clientName: selectedClient.name,
         address: selectedClient.address,
+        unitId: selectedUnit?.id,
         notes: form.notes,
         serviceId: selectedService.id,
       });
@@ -397,6 +403,53 @@ export default function Schedule() {
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-3">
+                <div className="space-y-1.5">
+                  <Label>Client</Label>
+                  <Select
+                    value={form.clientId}
+                    onValueChange={(v) =>
+                      setForm({ ...form, clientId: v, unitId: "" })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Unit</Label>
+                  <Select
+                    value={form.unitId || NO_UNIT}
+                    onValueChange={(v) =>
+                      setForm({ ...form, unitId: v === NO_UNIT ? "" : v })
+                    }
+                    disabled={!selectedClient}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select unit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_UNIT}>No specific unit</SelectItem>
+                      {selectedClient?.units.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.model} · {u.location}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedClient && selectedClient.units.length === 0 && (
+                    <p className="text-xs text-ink-500">
+                      This client has no units on record yet.
+                    </p>
+                  )}
+                </div>
                 <div className="space-y-1.5">
                   <Label>Service</Label>
                   <Select
@@ -493,24 +546,6 @@ export default function Schedule() {
                       placeholder="9:00 AM"
                     />
                   </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Client</Label>
-                  <Select
-                    value={form.clientId}
-                    onValueChange={(v) => setForm({ ...form, clientId: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select client" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Address</Label>
@@ -890,6 +925,14 @@ export default function Schedule() {
                 {selectedClient?.address}
               </span>
             </div>
+            {selectedUnit && (
+              <div className="flex justify-between gap-3">
+                <span className="text-ink-500">Unit</span>
+                <span className="text-right text-ink-700">
+                  {selectedUnit.model} · {selectedUnit.location}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between gap-3">
               <span className="text-ink-500">Date</span>
               <span className="text-right text-ink-700">

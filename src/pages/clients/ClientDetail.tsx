@@ -3,7 +3,6 @@ import { useParams, Navigate, Link } from "react-router-dom";
 import {
   ArrowLeft,
   Plus,
-  Wrench,
   MapPin,
   Phone,
   Mail,
@@ -110,9 +109,7 @@ export default function ClientDetail() {
   const {
     clients,
     invoices,
-    serviceCatalog,
     addUnitToClient,
-    addServiceRecordToUnit,
     updateClient,
     auditLog,
     logAudit,
@@ -120,9 +117,6 @@ export default function ClientDetail() {
   const client = clients.find((c) => c.id === id);
 
   const [unitDialogOpen, setUnitDialogOpen] = useState(false);
-  const [serviceDialogOpen, setServiceDialogOpen] = useState<string | null>(
-    null,
-  );
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     name: "",
@@ -142,11 +136,6 @@ export default function ClientDetail() {
     location: "",
     warrantyMonths: 24,
   });
-  const [serviceForm, setServiceForm] = useState({
-    type: "Cleaning (PMS)",
-    notes: "",
-  });
-
   const [unitQuery, setUnitQuery] = useState("");
   const [unitStatusFilter, setUnitStatusFilter] =
     useState<(typeof unitStatusFilters)[number]>("all");
@@ -329,17 +318,6 @@ export default function ClientDetail() {
       dateOfEngagement: editForm.dateOfEngagement || undefined,
     });
     setEditDialogOpen(false);
-  }
-
-  function handleAddService(unitId: string) {
-    if (!client) return;
-    addServiceRecordToUnit(client.id, unitId, {
-      type: serviceForm.type,
-      technicianId: "u-tech",
-      notes: serviceForm.notes || "No additional notes.",
-    });
-    setServiceForm({ type: "Cleaning (PMS)", notes: "" });
-    setServiceDialogOpen(null);
   }
 
   return (
@@ -788,75 +766,6 @@ export default function ClientDetail() {
                                 className={`h-3.5 w-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
                               />
                             </button>
-                            <Dialog
-                              open={serviceDialogOpen === unit.id}
-                              onOpenChange={(o) =>
-                                setServiceDialogOpen(o ? unit.id : null)
-                              }
-                            >
-                              <DialogTrigger asChild>
-                                <Button size="sm" variant="outline">
-                                  <Wrench className="h-3.5 w-3.5" /> Log Service
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Log a service record</DialogTitle>
-                                  <DialogDescription>
-                                    Recorded against S/N {unit.serialIndoor}
-                                  </DialogDescription>
-                                </DialogHeader>
-                                <div className="grid gap-3">
-                                  <div className="space-y-1.5">
-                                    <Label>Service Type</Label>
-                                    <Select
-                                      value={serviceForm.type}
-                                      onValueChange={(v) =>
-                                        setServiceForm({ ...serviceForm, type: v })
-                                      }
-                                    >
-                                      <SelectTrigger>
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {serviceCatalog.map((s) => (
-                                          <SelectItem key={s.id} value={s.name}>
-                                            {s.name}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label>Notes</Label>
-                                    <Textarea
-                                      value={serviceForm.notes}
-                                      onChange={(e) =>
-                                        setServiceForm({
-                                          ...serviceForm,
-                                          notes: e.target.value,
-                                        })
-                                      }
-                                      placeholder="What was done during this visit?"
-                                    />
-                                  </div>
-                                </div>
-                                <DialogFooter>
-                                  <Button
-                                    variant="outline"
-                                    onClick={() => setServiceDialogOpen(null)}
-                                  >
-                                    Cancel
-                                  </Button>
-                                  <Button
-                                    variant="brand"
-                                    onClick={() => handleAddService(unit.id)}
-                                  >
-                                    Save Record
-                                  </Button>
-                                </DialogFooter>
-                              </DialogContent>
-                            </Dialog>
                           </div>
 
                           {isExpanded && (

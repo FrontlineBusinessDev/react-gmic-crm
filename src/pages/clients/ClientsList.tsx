@@ -58,6 +58,21 @@ function emptyUnitDraft(): UnitDraft {
 }
 const emptyForm = { name: "", phone: "", email: "", address: "", tags: "", units: [] as UnitDraft[] };
 
+function unitDraftFromExisting(unit: Unit): UnitDraft {
+  return {
+    key: `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    serialIndoor: unit.serialIndoor,
+    serialOutdoor: unit.serialOutdoor,
+    model: unit.model,
+    type: unit.type,
+    horsePower: unit.horsePower,
+    installDate: unit.installDate,
+    warrantyMonths: unit.warrantyMonths,
+    status: unit.status,
+    location: unit.location,
+  };
+}
+
 type ClientSearchField = "name" | "phone" | "email" | "address" | "tags";
 const searchFieldOptions: { key: ClientSearchField; label: string }[] = [
   { key: "name", label: "Name" },
@@ -88,6 +103,16 @@ export default function ClientsList() {
   const [editTarget, setEditTarget] = useState<Client | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [importOpen, setImportOpen] = useState(false);
+  const [unitTab, setUnitTab] = useState<"new" | "existing">("new");
+  const [existingUnitId, setExistingUnitId] = useState("");
+
+  const allExistingUnits = useMemo(
+    () =>
+      clients.flatMap((c) =>
+        c.units.map((u) => ({ unit: u, clientName: c.name, key: `${c.id}:${u.id}` }))
+      ),
+    [clients]
+  );
 
   function handleClientImport(rows: Record<string, string>[]) {
     const errors: string[] = [];
@@ -166,6 +191,8 @@ export default function ClientsList() {
   function openAdd() {
     setEditTarget(null);
     setForm(emptyForm);
+    setUnitTab("new");
+    setExistingUnitId("");
     setOpen(true);
   }
 
@@ -183,7 +210,14 @@ export default function ClientsList() {
   }
 
   function addUnitDraft() {
-    setForm((f) => ({ ...f, units: [...f.units, emptyUnitDraft()] }));
+    setForm((f) => ({ ...f, units: [emptyUnitDraft()] }));
+  }
+
+  function addExistingUnitDraft(compositeId: string) {
+    const found = allExistingUnits.find((e) => e.key === compositeId);
+    if (!found) return;
+    setForm((f) => ({ ...f, units: [unitDraftFromExisting(found.unit)] }));
+    setExistingUnitId("");
   }
 
   function updateUnitDraft(key: string, updates: Partial<UnitDraft>) {
@@ -272,67 +306,133 @@ export default function ClientsList() {
 
                 {!editTarget && (
                   <div className="space-y-1.5 rounded-lg border border-ink-100 bg-ink-50/60 p-3">
-                    <div className="flex items-center justify-between">
-                      <Label>Units (optional)</Label>
-                      <Button type="button" size="sm" variant="outline" onClick={addUnitDraft}>
-                        <Plus className="h-3.5 w-3.5" /> Add unit
+                    <Label>Units (optional)</Label>
+                    <p className="text-xs text-ink-400">You can add one unit now, or skip this and add more later from the client's profile.</p>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={unitTab === "new" ? "brand" : "outline"}
+                        className="flex-1"
+                        onClick={() => {
+                          setUnitTab("new");
+                          addUnitDraft();
+                        }}
+                      >
+                        Add New
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={unitTab === "existing" ? "brand" : "outline"}
+                        className="flex-1"
+                        onClick={() => {
+                          setUnitTab("existing");
+                          setExistingUnitId("");
+                          setForm((f) => ({ ...f, units: [] }));
+                        }}
+                      >
+                        Add Existing
                       </Button>
                     </div>
-                    <p className="text-xs text-ink-400">You can add multiple units now, or skip this and add them later from the client's profile.</p>
+                    {unitTab === "existing" && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Existing unit</Label>
+                        <Select
+                          value={existingUnitId}
+                          onValueChange={(v) => {
+                            setExistingUnitId(v);
+                            addExistingUnitDraft(v);
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder={allExistingUnits.length ? "Select an existing unit..." : "No units in the system yet"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {allExistingUnits.map(({ unit, clientName, key }) => (
+                              <SelectItem key={key} value={key}>
+                                {unit.model || "Unnamed unit"} · IN {unit.serialIndoor || "—"} / OUT {unit.serialOutdoor || "—"} ({clientName})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-ink-400">Selecting a unit copies its serials and details into this client's unit list.</p>
+                      </div>
+                    )}
                     {form.units.length > 0 && (
                       <div className="space-y-3">
                         {form.units.map((unit) => (
                           <div key={unit.key} className="space-y-2 rounded-lg border border-ink-100 bg-white p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <Input
-                                value={unit.model}
-                                onChange={(e) => updateUnitDraft(unit.key, { model: e.target.value })}
-                                placeholder="Model, e.g. Carrier Optimax 1.5HP"
-                                className="flex-1"
-                              />
+                            <div className="flex items-end gap-2">
+                              <div className="flex-1 space-y-1">
+                                <Label className="text-xs">Model</Label>
+                                <Input
+                                  value={unit.model}
+                                  onChange={(e) => updateUnitDraft(unit.key, { model: e.target.value })}
+                                  placeholder="Model, e.g. Carrier Optimax 1.5HP"
+                                />
+                              </div>
                               <Button type="button" size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-ink-400" onClick={() => removeUnitDraft(unit.key)}>
                                 <X className="h-3.5 w-3.5" />
                               </Button>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
-                              <Input
-                                value={unit.serialIndoor}
-                                onChange={(e) => updateUnitDraft(unit.key, { serialIndoor: e.target.value })}
-                                placeholder="Indoor serial"
-                              />
-                              <Input
-                                value={unit.serialOutdoor}
-                                onChange={(e) => updateUnitDraft(unit.key, { serialOutdoor: e.target.value })}
-                                placeholder="Outdoor serial"
-                              />
+                              <div className="space-y-1">
+                                <Label className="text-xs">Indoor serial</Label>
+                                <Input
+                                  value={unit.serialIndoor}
+                                  onChange={(e) => updateUnitDraft(unit.key, { serialIndoor: e.target.value })}
+                                  placeholder="Indoor serial"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Outdoor serial</Label>
+                                <Input
+                                  value={unit.serialOutdoor}
+                                  onChange={(e) => updateUnitDraft(unit.key, { serialOutdoor: e.target.value })}
+                                  placeholder="Outdoor serial"
+                                />
+                              </div>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
-                              <Select value={unit.type} onValueChange={(v) => updateUnitDraft(unit.key, { type: v as Unit["type"] })}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {(["Window Type", "Split Type", "Cassette", "Floor Standing", "Package AC"] as const).map((t) => (
-                                    <SelectItem key={t} value={t}>{t}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Input
-                                value={unit.horsePower}
-                                onChange={(e) => updateUnitDraft(unit.key, { horsePower: e.target.value })}
-                                placeholder="1.5 HP"
-                              />
+                              <div className="space-y-1">
+                                <Label className="text-xs">Type</Label>
+                                <Select value={unit.type} onValueChange={(v) => updateUnitDraft(unit.key, { type: v as Unit["type"] })}>
+                                  <SelectTrigger><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    {(["Window Type", "Split Type", "Cassette", "Floor Standing", "Package AC"] as const).map((t) => (
+                                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Horsepower</Label>
+                                <Input
+                                  value={unit.horsePower}
+                                  onChange={(e) => updateUnitDraft(unit.key, { horsePower: e.target.value })}
+                                  placeholder="1.5 HP"
+                                />
+                              </div>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
-                              <Input
-                                value={unit.location}
-                                onChange={(e) => updateUnitDraft(unit.key, { location: e.target.value })}
-                                placeholder="Location, e.g. Master Bedroom"
-                              />
-                              <Input
-                                type="number"
-                                value={unit.warrantyMonths}
-                                onChange={(e) => updateUnitDraft(unit.key, { warrantyMonths: Number(e.target.value) || 0 })}
-                                placeholder="Warranty (months)"
-                              />
+                              <div className="space-y-1">
+                                <Label className="text-xs">Location</Label>
+                                <Input
+                                  value={unit.location}
+                                  onChange={(e) => updateUnitDraft(unit.key, { location: e.target.value })}
+                                  placeholder="Location, e.g. Master Bedroom"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Warranty (months)</Label>
+                                <Input
+                                  type="number"
+                                  value={unit.warrantyMonths}
+                                  onChange={(e) => updateUnitDraft(unit.key, { warrantyMonths: Number(e.target.value) || 0 })}
+                                  placeholder="Warranty (months)"
+                                />
+                              </div>
                             </div>
                           </div>
                         ))}

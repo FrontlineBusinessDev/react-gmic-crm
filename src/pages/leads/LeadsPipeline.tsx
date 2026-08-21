@@ -28,7 +28,7 @@ import {
 import { useCrmStore } from "@/store/crmStore";
 import { SurveyPhotoGrid } from "@/components/shared/survey-photos";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
-import type { Lead, LeadStage } from "@/types";
+import type { Client, Lead, LeadStage } from "@/types";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 const stages: { key: LeadStage; label: string; accent: string }[] = [
@@ -44,7 +44,7 @@ const stageFilters: (LeadStage | "all")[] = ["all", "inquiry", "survey_done", "p
 const KANBAN_COLUMN_HEIGHT = "max-h-[560px]";
 
 export default function LeadsPipeline() {
-  const { leads, addLead, moveLeadStage, convertLeadToClient } = useCrmStore();
+  const { leads, clients, addLead, moveLeadStage, convertLeadToClient } = useCrmStore();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [addOpen, setAddOpen] = useState(false);
@@ -79,7 +79,7 @@ export default function LeadsPipeline() {
     | { kind: "convert"; lead: Lead }
     | null
   >(null);
-  const [form, setForm] = useState({
+  const emptyLeadForm = {
     clientName: "",
     phone: "",
     email: "",
@@ -88,7 +88,40 @@ export default function LeadsPipeline() {
     interestedUnit: "",
     estimatedValue: "",
     notes: "",
-  });
+  };
+  const [form, setForm] = useState(emptyLeadForm);
+  const [leadType, setLeadType] = useState<"new" | "existing">("new");
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [clientQuery, setClientQuery] = useState("");
+  const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
+
+  const filteredClients = useMemo(() => {
+    const q = clientQuery.toLowerCase().trim();
+    if (!q) return clients.slice(0, 8);
+    return clients
+      .filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.phone.toLowerCase().includes(q) ||
+          c.email.toLowerCase().includes(q)
+      )
+      .slice(0, 8);
+  }, [clients, clientQuery]);
+
+  function resetLeadForm() {
+    setForm(emptyLeadForm);
+    setLeadType("new");
+    setSelectedClientId(null);
+    setClientQuery("");
+    setClientDropdownOpen(false);
+  }
+
+  function selectExistingClient(client: Client) {
+    setSelectedClientId(client.id);
+    setClientQuery(client.name);
+    setClientDropdownOpen(false);
+    setForm({ ...form, clientName: client.name, phone: client.phone, email: client.email, address: client.address });
+  }
 
   const filteredLeads = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -128,7 +161,7 @@ export default function LeadsPipeline() {
       assignedTo: "u-sales",
       notes: form.notes,
     });
-    setForm({ clientName: "", phone: "", email: "", address: "", source: "Facebook Messenger", interestedUnit: "", estimatedValue: "", notes: "" });
+    resetLeadForm();
     setAddOpen(false);
   }
 
@@ -158,7 +191,13 @@ export default function LeadsPipeline() {
         title="Leads Pipeline"
         description="Inquiry → Survey → Proposal → Won or Lost."
         actions={
-          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+          <Dialog
+            open={addOpen}
+            onOpenChange={(o) => {
+              setAddOpen(o);
+              if (!o) resetLeadForm();
+            }}
+          >
             <DialogTrigger asChild>
               <Button variant="brand"><Plus className="h-4 w-4" /> New Lead</Button>
             </DialogTrigger>
@@ -167,11 +206,71 @@ export default function LeadsPipeline() {
                 <DialogTitle>Add a new lead</DialogTitle>
                 <DialogDescription>Captured leads start in the Inquiry stage.</DialogDescription>
               </DialogHeader>
+
+              <Tabs
+                value={leadType}
+                onValueChange={(v) => {
+                  setLeadType(v as typeof leadType);
+                  setForm(emptyLeadForm);
+                  setSelectedClientId(null);
+                  setClientQuery("");
+                }}
+              >
+                <TabsList>
+                  <TabsTrigger value="new">New Lead</TabsTrigger>
+                  <TabsTrigger value="existing">Existing Client</TabsTrigger>
+                </TabsList>
+              </Tabs>
+
               <div className="grid gap-3">
-                <div className="space-y-1.5">
-                  <Label>Client name</Label>
-                  <Input value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} />
-                </div>
+                {leadType === "existing" ? (
+                  <div className="space-y-1.5">
+                    <Label>Client</Label>
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
+                      <Input
+                        className="pl-9"
+                        placeholder="Search clients by name, phone, or email..."
+                        value={clientQuery}
+                        onChange={(e) => {
+                          setClientQuery(e.target.value);
+                          setSelectedClientId(null);
+                          setClientDropdownOpen(true);
+                        }}
+                        onFocus={() => setClientDropdownOpen(true)}
+                        onBlur={() => setTimeout(() => setClientDropdownOpen(false), 150)}
+                      />
+                      {clientDropdownOpen && (
+                        <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-ink-100 bg-white p-1 shadow-md">
+                          {filteredClients.length === 0 ? (
+                            <p className="px-3 py-2 text-xs text-ink-400">No clients found.</p>
+                          ) : (
+                            filteredClients.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => selectExistingClient(c)}
+                                className="flex w-full flex-col items-start rounded-sm px-3 py-1.5 text-left text-sm hover:bg-brand-blue-50"
+                              >
+                                <span className="font-medium text-ink-800">{c.name}</span>
+                                <span className="text-xs text-ink-400">{c.phone}{c.email ? ` · ${c.email}` : ""}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {selectedClientId && (
+                      <p className="text-xs text-brand-green-600">Contact details filled in from this client's profile.</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label>Client name</Label>
+                    <Input value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} />
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>Phone</Label>
@@ -214,7 +313,13 @@ export default function LeadsPipeline() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-                <Button variant="brand" onClick={handleAdd}>Create Lead</Button>
+                <Button
+                  variant="brand"
+                  onClick={handleAdd}
+                  disabled={leadType === "existing" && !selectedClientId}
+                >
+                  Create Lead
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
