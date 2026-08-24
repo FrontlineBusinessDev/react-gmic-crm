@@ -53,6 +53,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { RestrictedField } from "@/components/shared/restricted-field";
 import { FileDropZone } from "@/components/shared/file-drop-zone";
 import { SurveyPhotoGrid } from "@/components/shared/survey-photos";
+import { JobNotesPanel } from "@/components/schedule/job-notes";
 import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
 import { usePagination } from "@/lib/use-pagination";
@@ -131,7 +132,7 @@ const confirmCopy: Record<
 
 export default function MyJobs() {
   const currentUser = useAuthStore((s) => s.currentUser);
-  const { schedule, leads, updateJobStatus, addSurveyReport, moveLeadStage, claimJob } =
+  const { schedule, leads, updateJobStatus, logAdditionalMaterials, addSurveyReport, moveLeadStage, claimJob, addJobNote } =
     useCrmStore();
   const [activeJob, setActiveJob] = useState<ScheduleJob | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(
@@ -145,6 +146,16 @@ export default function MyJobs() {
     recommendedUnits: "",
   });
   const [surveyPhotos, setSurveyPhotos] = useState<string[]>([]);
+
+  const [materialsOpen, setMaterialsOpen] = useState(false);
+  const [materialsAction, setMaterialsAction] = useState<PendingAction | null>(null);
+  const [materialsForm, setMaterialsForm] = useState({
+    excessCopperFeet: "",
+    breaker: "",
+    excessElectricalWireFeet: "",
+    pvc: "",
+    others: "",
+  });
 
   const [activeView, setActiveView] = useState<"cards" | "table">("cards");
   const [activeQuery, setActiveQuery] = useState("");
@@ -316,11 +327,45 @@ export default function MyJobs() {
         recommendedUnits: surveyForm.recommendedUnits,
         photos: surveyPhotos,
       });
-      if (lead.stage === "inquiry") moveLeadStage(lead.id, "survey_done");
+      if (lead.stage === "Inquiry") moveLeadStage(lead.id, "Site Visit");
     }
     updateJobStatus(activeJob.id, "completed");
     setSurveyOpen(false);
     setActiveJob(null);
+  }
+
+  function openMaterialsForm(action: PendingAction) {
+    setMaterialsForm({
+      excessCopperFeet: "",
+      breaker: "",
+      excessElectricalWireFeet: "",
+      pvc: "",
+      others: "",
+    });
+    setMaterialsAction(action);
+    setMaterialsOpen(true);
+  }
+
+  function submitMaterialsForm() {
+    if (!activeJob || !materialsAction) return;
+    const hasAny =
+      materialsForm.excessCopperFeet ||
+      materialsForm.breaker ||
+      materialsForm.excessElectricalWireFeet ||
+      materialsForm.pvc ||
+      materialsForm.others;
+    if (hasAny) {
+      logAdditionalMaterials(activeJob.id, {
+        excessCopperFeet: materialsForm.excessCopperFeet ? Number(materialsForm.excessCopperFeet) : undefined,
+        breaker: materialsForm.breaker || undefined,
+        excessElectricalWireFeet: materialsForm.excessElectricalWireFeet ? Number(materialsForm.excessElectricalWireFeet) : undefined,
+        pvc: materialsForm.pvc || undefined,
+        others: materialsForm.others || undefined,
+      });
+    }
+    setMaterialsOpen(false);
+    requestStatusChange(materialsAction);
+    setMaterialsAction(null);
   }
 
   function renderJobGrid(
@@ -773,6 +818,31 @@ export default function MyJobs() {
                   </p>
                 </div>
 
+                {activeJob.additionalMaterials && (
+                  <div className="rounded-lg bg-ink-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                      Additional Materials
+                    </p>
+                    <div className="mt-1 space-y-0.5 text-ink-700">
+                      {activeJob.additionalMaterials.excessCopperFeet != null && (
+                        <p>Excess Copper: {activeJob.additionalMaterials.excessCopperFeet} ft</p>
+                      )}
+                      {activeJob.additionalMaterials.breaker && (
+                        <p>Breaker: {activeJob.additionalMaterials.breaker}</p>
+                      )}
+                      {activeJob.additionalMaterials.excessElectricalWireFeet != null && (
+                        <p>Excess Electrical Wire: {activeJob.additionalMaterials.excessElectricalWireFeet} ft</p>
+                      )}
+                      {activeJob.additionalMaterials.pvc && (
+                        <p>PVC: {activeJob.additionalMaterials.pvc}</p>
+                      )}
+                      {activeJob.additionalMaterials.others && (
+                        <p>Others: {activeJob.additionalMaterials.others}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {relatedSurvey && (
                   <div className="rounded-lg border border-brand-cyan-500/30 bg-brand-cyan-500/5 p-3">
                     <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-brand-cyan-700">
@@ -787,6 +857,38 @@ export default function MyJobs() {
                     <SurveyPhotoGrid photos={relatedSurvey.photos} />
                   </div>
                 )}
+
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">
+                    Notes &amp; Photos
+                  </p>
+                  <JobNotesPanel
+                    entries={activeJob.noteEntries ?? []}
+                    onAddNote={(text, photos) => {
+                      if (!currentUser) return;
+                      addJobNote(activeJob.id, {
+                        authorId: currentUser.id,
+                        authorName: currentUser.name,
+                        text,
+                        photos,
+                      });
+                      setActiveJob({
+                        ...activeJob,
+                        noteEntries: [
+                          ...(activeJob.noteEntries ?? []),
+                          {
+                            id: `pending-${Date.now()}`,
+                            authorId: currentUser.id,
+                            authorName: currentUser.name,
+                            timestamp: new Date().toISOString(),
+                            text: text || undefined,
+                            photos,
+                          },
+                        ],
+                      });
+                    }}
+                  />
+                </div>
 
                 <RestrictedField label="Client contact & pricing" />
               </div>
@@ -816,7 +918,7 @@ export default function MyJobs() {
                     <Button
                       variant="brand"
                       size="sm"
-                      onClick={() => requestStatusChange("installed")}
+                      onClick={() => openMaterialsForm("installed")}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" /> Mark Installed
                     </Button>
@@ -828,7 +930,7 @@ export default function MyJobs() {
                     <Button
                       variant="brand"
                       size="sm"
-                      onClick={() => requestStatusChange("completed")}
+                      onClick={() => openMaterialsForm("completed")}
                     >
                       Mark as Completed
                     </Button>
@@ -1017,6 +1119,77 @@ export default function MyJobs() {
               onClick={submitSurveyReport}
             >
               Submit Report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={materialsOpen} onOpenChange={setMaterialsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Additional materials used</DialogTitle>
+            <DialogDescription>
+              Log any extra materials used on this job, for office records. Leave anything not used blank.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Excess Copper (in feet)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={materialsForm.excessCopperFeet}
+                onChange={(e) => setMaterialsForm({ ...materialsForm, excessCopperFeet: e.target.value })}
+                placeholder="0"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Breaker</Label>
+              <Input
+                value={materialsForm.breaker}
+                onChange={(e) => setMaterialsForm({ ...materialsForm, breaker: e.target.value })}
+                placeholder="e.g. 20A x1"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Excess Electrical Wire (in feet)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={materialsForm.excessElectricalWireFeet}
+                onChange={(e) => setMaterialsForm({ ...materialsForm, excessElectricalWireFeet: e.target.value })}
+                placeholder="0"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>PVC</Label>
+              <Input
+                value={materialsForm.pvc}
+                onChange={(e) => setMaterialsForm({ ...materialsForm, pvc: e.target.value })}
+                placeholder="e.g. 2 pcs 1/2 in"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Others</Label>
+              <Input
+                value={materialsForm.others}
+                onChange={(e) => setMaterialsForm({ ...materialsForm, others: e.target.value })}
+                placeholder="Anything else used"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setMaterialsOpen(false);
+                setMaterialsAction(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button variant="brand" onClick={submitMaterialsForm}>
+              Save &amp; Continue
             </Button>
           </DialogFooter>
         </DialogContent>

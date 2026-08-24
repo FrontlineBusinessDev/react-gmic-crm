@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { LeadStageBadge } from "@/components/shared/status-badge";
+import { ProjectStatusBadge } from "@/components/shared/status-badge";
 import { useCrmStore } from "@/store/crmStore";
 import { useAuthStore } from "@/store/authStore";
 import { formatCurrency, formatDateTime, initials } from "@/lib/utils";
@@ -19,19 +19,20 @@ export default function Dashboard() {
 
   const stats = useMemo(() => {
     const totalOutstanding = clients.reduce((sum, c) => sum + c.balance, 0);
-    const activeLeads = leads.filter((l) => l.stage !== "won" && l.stage !== "lost").length;
+    const activeLeads = leads.filter((l) => l.stage !== "Project Won" && l.stage !== "Project Lost").length;
     const totalUnits = clients.reduce((sum, c) => sum + c.units.length, 0);
-    const wonValue = leads.filter((l) => l.stage === "won").reduce((s, l) => s + l.estimatedValue, 0);
+    const wonValue = leads.filter((l) => l.stage === "Project Won").reduce((s, l) => s + l.estimatedValue, 0);
     return { totalOutstanding, activeLeads, totalUnits, wonValue };
   }, [clients, leads]);
 
   const pipelineData = useMemo(() => {
     const stages: { key: string; label: string }[] = [
-      { key: "inquiry", label: "Inquiry" },
-      { key: "survey_done", label: "Survey" },
-      { key: "proposal_sent", label: "Proposal" },
-      { key: "won", label: "Won" },
-      { key: "lost", label: "Lost" },
+      { key: "Inquiry", label: "Inquiry" },
+      { key: "Site Visit", label: "Site Visit" },
+      { key: "Quotation", label: "Quotation" },
+      { key: "Follow-Up", label: "Follow-Up" },
+      { key: "Project Won", label: "Won" },
+      { key: "Project Lost", label: "Lost" },
     ];
     return stages.map((s) => ({
       name: s.label,
@@ -141,7 +142,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {leads.filter((l) => l.stage !== "won" && l.stage !== "lost").length > 0 && (
+        {leads.filter((l) => l.stage !== "Project Won" && l.stage !== "Project Lost").length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Leads Needing Attention</CardTitle>
@@ -149,7 +150,7 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="space-y-2">
               {leads
-                .filter((l) => l.stage !== "won" && l.stage !== "lost")
+                .filter((l) => l.stage !== "Project Won" && l.stage !== "Project Lost")
                 .slice(0, 4)
                 .map((lead) => (
                   <div
@@ -160,7 +161,7 @@ export default function Dashboard() {
                       <p className="text-sm font-medium text-ink-800">{lead.clientName}</p>
                       <p className="text-xs text-ink-500">{lead.interestedUnit} · {formatCurrency(lead.estimatedValue)}</p>
                     </div>
-                    <LeadStageBadge stage={lead.stage} />
+                    <ProjectStatusBadge status={lead.stage} />
                   </div>
                 ))}
             </CardContent>

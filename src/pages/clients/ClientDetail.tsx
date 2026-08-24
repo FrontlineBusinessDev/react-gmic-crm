@@ -15,6 +15,7 @@ import {
   X,
   Download,
   PhoneCall,
+  Tag,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,6 +45,7 @@ import {
   UnitStatusBadge,
   ClientStatusBadge,
   InvoiceStatusBadge,
+  ProjectStatusBadge,
 } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -53,7 +55,17 @@ import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { addMonthsIso, daysBetween, formatCurrency, formatDate } from "@/lib/utils";
 import { exportInvoicePdf } from "@/lib/invoice-pdf";
-import type { Unit, UnitStatus, Invoice, InvoiceStatus } from "@/types";
+import type { ClientSource, Unit, UnitStatus, Invoice, InvoiceStatus, ProjectStatus } from "@/types";
+
+const clientSourceOptions: ClientSource[] = ["GMIC", "Imperial", "MegaSaver", "Alfamart"];
+
+const postWonProjectStatuses: ProjectStatus[] = [
+  "Phase 1 Installation",
+  "Phase 2 Installation",
+  "Billing",
+  "Collection",
+  "PMS",
+];
 
 function warrantyInfo(unit: Unit) {
   const expiresOn = addMonthsIso(unit.installDate, unit.warrantyMonths);
@@ -109,8 +121,12 @@ export default function ClientDetail() {
   const {
     clients,
     invoices,
+    inventory,
+    inventoryCategories,
     addUnitToClient,
+    markSerializedUnitInstalled,
     updateClient,
+    updateClientProjectStatus,
     auditLog,
     logAudit,
   } = useCrmStore();
@@ -123,6 +139,7 @@ export default function ClientDetail() {
     phone: "",
     email: "",
     address: "",
+    source: "" as ClientSource | "",
     tags: "",
     dateOfEngagement: "",
   });
@@ -136,6 +153,8 @@ export default function ClientDetail() {
     location: "",
     warrantyMonths: 24,
   });
+  const [linkedItemId, setLinkedItemId] = useState("");
+  const [linkedSerialId, setLinkedSerialId] = useState("");
   const [unitQuery, setUnitQuery] = useState("");
   const [unitStatusFilter, setUnitStatusFilter] =
     useState<(typeof unitStatusFilters)[number]>("all");
@@ -211,6 +230,17 @@ export default function ClientDetail() {
     (e) => e.module === "client" && e.entityId === client.id,
   );
 
+  // AC Unit-category items with at least one real in-stock serial available to link.
+  const acUnitItems = inventory.filter(
+    (i) =>
+      (i.status ?? "active") === "active" &&
+      inventoryCategories.find((c) => c.name === i.category)?.tracksSerials &&
+      i.serializedUnits?.some((su) => su.status === "in_stock"),
+  );
+  const linkedItem = inventory.find((i) => i.id === linkedItemId);
+  const availableSerials = linkedItem?.serializedUnits?.filter((su) => su.status === "in_stock") ?? [];
+  const linkedSerial = availableSerials.find((su) => su.id === linkedSerialId);
+
   const unitSearch = unitQuery.trim().toLowerCase();
   const filteredUnits = client.units.filter((unit) => {
     const matchesQuery =
@@ -270,12 +300,22 @@ export default function ClientDetail() {
   } = usePagination(filteredClientInvoices, 10);
 
   function handleAddUnit() {
-    if (!client || !unitForm.serialIndoor || !unitForm.model) return;
+    if (!client) return;
+    const model = linkedItem ? linkedItem.name : unitForm.model;
+    const serialIndoor = linkedSerial ? linkedSerial.serialIndoor : unitForm.serialIndoor;
+    const serialOutdoor = linkedSerial ? linkedSerial.serialOutdoor ?? "" : unitForm.serialOutdoor;
+    if (!serialIndoor || !model) return;
     addUnitToClient(client.id, {
       ...unitForm,
+      model,
+      serialIndoor,
+      serialOutdoor,
       installDate: new Date().toISOString().slice(0, 10),
       status: "active",
     });
+    if (linkedItem && linkedSerial) {
+      markSerializedUnitInstalled(linkedItem.id, linkedSerial.id);
+    }
     setUnitForm({
       serialIndoor: "",
       serialOutdoor: "",
@@ -285,6 +325,8 @@ export default function ClientDetail() {
       location: "",
       warrantyMonths: 24,
     });
+    setLinkedItemId("");
+    setLinkedSerialId("");
     setUnitDialogOpen(false);
   }
 
@@ -295,6 +337,7 @@ export default function ClientDetail() {
       phone: client.phone,
       email: client.email,
       address: client.address,
+      source: client.source ?? "",
       tags: client.tags.join(", "),
       dateOfEngagement: client.dateOfEngagement ?? "",
     });
@@ -314,6 +357,7 @@ export default function ClientDetail() {
       phone: editForm.phone,
       email: editForm.email,
       address: editForm.address,
+      source: editForm.source || undefined,
       tags,
       dateOfEngagement: editForm.dateOfEngagement || undefined,
     });
@@ -349,43 +393,101 @@ export default function ClientDetail() {
               </DialogHeader>
               <div className="grid gap-3">
                 <div className="space-y-1.5">
-                  <Label>Model</Label>
-                  <Input
-                    value={unitForm.model}
-                    onChange={(e) =>
-                      setUnitForm({ ...unitForm, model: e.target.value })
-                    }
-                    placeholder="e.g. Carrier Optimax 1.5HP"
-                  />
+                  <Label>Link to inventory (optional)</Label>
+                  <Select
+                    value={linkedItemId || "none"}
+                    onValueChange={(v) => {
+                      setLinkedItemId(v === "none" ? "" : v);
+                      setLinkedSerialId("");
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— Enter manually —</SelectItem>
+                      {acUnitItems.map((i) => (
+                        <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+
+                {linkedItem && (
                   <div className="space-y-1.5">
-                    <Label>Indoor Serial No.</Label>
-                    <Input
-                      value={unitForm.serialIndoor}
-                      onChange={(e) =>
-                        setUnitForm({
-                          ...unitForm,
-                          serialIndoor: e.target.value,
-                        })
-                      }
-                      placeholder="GMI-IN-00000"
-                    />
+                    <Label>Available unit</Label>
+                    <Select value={linkedSerialId || undefined} onValueChange={setLinkedSerialId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a serial" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableSerials.map((su) => (
+                          <SelectItem key={su.id} value={su.id}>
+                            {su.serialOutdoor ? `${su.serialIndoor} / ${su.serialOutdoor}` : su.serialIndoor}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label>Outdoor Serial No.</Label>
-                    <Input
-                      value={unitForm.serialOutdoor}
-                      onChange={(e) =>
-                        setUnitForm({
-                          ...unitForm,
-                          serialOutdoor: e.target.value,
-                        })
-                      }
-                      placeholder="GMI-OUT-00000"
-                    />
+                )}
+
+                {linkedItem ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Model</Label>
+                      <div className="flex h-9 items-center rounded-md border border-ink-100 bg-ink-50 px-3 text-sm text-ink-500">
+                        {linkedItem.name}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Serial(s)</Label>
+                      <div className="flex h-9 items-center rounded-md border border-ink-100 bg-ink-50 px-3 text-sm text-ink-500">
+                        {linkedSerial ? (linkedSerial.serialOutdoor ? `${linkedSerial.serialIndoor} / ${linkedSerial.serialOutdoor}` : linkedSerial.serialIndoor) : "Select a serial above"}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label>Model</Label>
+                      <Input
+                        value={unitForm.model}
+                        onChange={(e) =>
+                          setUnitForm({ ...unitForm, model: e.target.value })
+                        }
+                        placeholder="e.g. Carrier Optimax 1.5HP"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label>Indoor Serial No.</Label>
+                        <Input
+                          value={unitForm.serialIndoor}
+                          onChange={(e) =>
+                            setUnitForm({
+                              ...unitForm,
+                              serialIndoor: e.target.value,
+                            })
+                          }
+                          placeholder="GMI-IN-00000"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Outdoor Serial No.</Label>
+                        <Input
+                          value={unitForm.serialOutdoor}
+                          onChange={(e) =>
+                            setUnitForm({
+                              ...unitForm,
+                              serialOutdoor: e.target.value,
+                            })
+                          }
+                          placeholder="GMI-OUT-00000"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>Type</Label>
@@ -496,8 +598,13 @@ export default function ClientDetail() {
                   : "Not yet engaged"}
               </div>
             </div>
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2 text-sm text-ink-700">
+              <Tag className="h-4 w-4 shrink-0 text-ink-400" />
+              Source: {client.source ?? "Nothing Specified"}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               <ClientStatusBadge status={client.status} />
+              <ProjectStatusBadge status={client.projectStatus} />
               {client.tags.map((t) => (
                 <span
                   key={t}
@@ -506,6 +613,22 @@ export default function ClientDetail() {
                   {t}
                 </span>
               ))}
+            </div>
+            <div className="flex items-center gap-2 pt-1 sm:col-span-2">
+              <Label className="text-xs text-ink-500">Project status</Label>
+              <Select
+                value={client.projectStatus}
+                onValueChange={(v) => updateClientProjectStatus(client.id, v as ProjectStatus)}
+              >
+                <SelectTrigger className="h-8 w-56 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {postWonProjectStatuses.map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </CardContent>
         </Card>
@@ -575,6 +698,26 @@ export default function ClientDetail() {
                 />
               </div>
               <div className="space-y-1.5">
+                <Label>Source</Label>
+                <Select
+                  value={editForm.source}
+                  onValueChange={(value) =>
+                    setEditForm({ ...editForm, source: value as ClientSource })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Nothing Specified" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clientSourceOptions.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
                 <Label>Tags (comma-separated)</Label>
                 <Input
                   value={editForm.tags}
@@ -605,13 +748,13 @@ export default function ClientDetail() {
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-ink-500">Total Billed</span>
+              <span className="text-ink-500">Total Contract Price</span>
               <span className="font-medium">
                 {formatCurrency(client.totalBilled)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-ink-500">Total Paid</span>
+              <span className="text-ink-500">Total Payment Received</span>
               <span className="font-medium text-brand-green-600">
                 {formatCurrency(client.totalPaid)}
               </span>

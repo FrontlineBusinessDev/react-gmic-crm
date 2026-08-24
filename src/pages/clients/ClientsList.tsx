@@ -28,7 +28,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/mobile-list";
-import { ClientStatusBadge } from "@/components/shared/status-badge";
+import { ClientStatusBadge, ProjectStatusBadge } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Pagination } from "@/components/shared/pagination";
@@ -36,11 +36,27 @@ import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { formatCurrency } from "@/lib/utils";
-import type { Client, ClientStatus, Unit } from "@/types";
+import type { Client, ClientSource, ClientStatus, ProjectStatus, Unit } from "@/types";
+
+const clientSourceOptions: ClientSource[] = ["GMIC", "Imperial", "MegaSaver", "Alfamart"];
 
 const CLIENT_CSV_HEADERS = ["name", "phone", "email", "address", "tags", "status"];
 
 const statusFilters: (ClientStatus | "all")[] = ["all", "active", "lead", "inactive", "archived"];
+const projectStatusFilters: (ProjectStatus | "all")[] = [
+  "all",
+  "Inquiry",
+  "Site Visit",
+  "Quotation",
+  "Follow-Up",
+  "Project Won",
+  "Project Lost",
+  "Phase 1 Installation",
+  "Phase 2 Installation",
+  "Billing",
+  "Collection",
+  "PMS",
+];
 type UnitDraft = Omit<Unit, "id" | "serviceHistory"> & { key: string };
 function emptyUnitDraft(): UnitDraft {
   return {
@@ -56,7 +72,7 @@ function emptyUnitDraft(): UnitDraft {
     location: "",
   };
 }
-const emptyForm = { name: "", phone: "", email: "", address: "", tags: "", units: [] as UnitDraft[] };
+const emptyForm = { name: "", phone: "", email: "", address: "", source: "" as ClientSource | "", tags: "", units: [] as UnitDraft[] };
 
 function unitDraftFromExisting(unit: Unit): UnitDraft {
   return {
@@ -94,6 +110,7 @@ export default function ClientsList() {
   const { clients, addClient, updateClient, archiveClient, restoreClient, auditLog } = useCrmStore();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<(typeof statusFilters)[number]>("all");
+  const [projectStatus, setProjectStatus] = useState<(typeof projectStatusFilters)[number]>("all");
   const [searchFields, setSearchFields] = useState<Set<ClientSearchField>>(
     new Set(["name", "phone", "email", "address"])
   );
@@ -159,7 +176,8 @@ export default function ClientsList() {
         (searchFields.has("address") && c.address.toLowerCase().includes(q)) ||
         (searchFields.has("tags") && c.tags.some((t) => t.toLowerCase().includes(q)));
       const matchesStatus = status === "all" || c.status === status;
-      return matchesQuery && matchesStatus;
+      const matchesProjectStatus = projectStatus === "all" || c.projectStatus === projectStatus;
+      return matchesQuery && matchesStatus && matchesProjectStatus;
     });
     result.sort((a, b) => {
       let diff = 0;
@@ -170,12 +188,13 @@ export default function ClientsList() {
       return sortDir === "asc" ? diff : -diff;
     });
     return result;
-  }, [clients, query, status, searchFields, sortBy, sortDir]);
+  }, [clients, query, status, projectStatus, searchFields, sortBy, sortDir]);
 
   const { page, setPage, pageSize, setPageSize, pageItems, total } = usePagination(filtered, 10);
   const hasActiveFilters =
     query.trim() !== "" ||
     status !== "all" ||
+    projectStatus !== "all" ||
     sortBy !== "createdAt" ||
     sortDir !== "desc" ||
     searchFields.size !== 4;
@@ -183,6 +202,7 @@ export default function ClientsList() {
   function clearFilters() {
     setQuery("");
     setStatus("all");
+    setProjectStatus("all");
     setSortBy("createdAt");
     setSortDir("desc");
     setSearchFields(new Set(["name", "phone", "email", "address"]));
@@ -203,6 +223,7 @@ export default function ClientsList() {
       phone: client.phone,
       email: client.email,
       address: client.address,
+      source: client.source ?? "",
       tags: client.tags.join(", "),
       units: [],
     });
@@ -232,7 +253,14 @@ export default function ClientsList() {
     if (!form.name || !form.phone) return;
     const tags = form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
     if (editTarget) {
-      updateClient(editTarget.id, { name: form.name, phone: form.phone, email: form.email, address: form.address, tags });
+      updateClient(editTarget.id, {
+        name: form.name,
+        phone: form.phone,
+        email: form.email,
+        address: form.address,
+        source: form.source || undefined,
+        tags,
+      });
     } else {
       const units = form.units
         .filter((u) => u.model && u.serialIndoor)
@@ -242,6 +270,7 @@ export default function ClientsList() {
         phone: form.phone,
         email: form.email,
         address: form.address,
+        source: form.source || undefined,
         status: "active",
         tags,
         units,
@@ -298,6 +327,24 @@ export default function ClientsList() {
                 <div className="space-y-1.5">
                   <Label>Address</Label>
                   <Textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Street, Barangay, City" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Source</Label>
+                  <Select
+                    value={form.source}
+                    onValueChange={(value) => setForm({ ...form, source: value as ClientSource })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Nothing Specified" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clientSourceOptions.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Tags (comma-separated)</Label>
@@ -490,6 +537,18 @@ export default function ClientsList() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={projectStatus} onValueChange={(v) => setProjectStatus(v as typeof projectStatus)}>
+              <SelectTrigger className="w-full sm:w-52">
+                <SelectValue placeholder="Project status" />
+              </SelectTrigger>
+              <SelectContent>
+                {projectStatusFilters.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s === "all" ? "All project statuses" : s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="shrink-0">
@@ -551,7 +610,10 @@ export default function ClientsList() {
                         <p className="font-medium text-ink-800">{client.name}</p>
                         <p className="text-xs text-ink-400">{client.tags.join(" · ") || "—"}</p>
                       </div>
-                      <ClientStatusBadge status={client.status} />
+                      <div className="flex flex-col items-end gap-1">
+                        <ClientStatusBadge status={client.status} />
+                        <ProjectStatusBadge status={client.projectStatus} />
+                      </div>
                     </div>
                     <MobileListRow label="Contact">
                       <span className="block">{client.phone}</span>
@@ -589,6 +651,7 @@ export default function ClientsList() {
                     <TableHead>Units</TableHead>
                     <TableHead>Balance</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Project Status</TableHead>
                     <TableHead />
                   </TableRow>
                 </TableHeader>
@@ -619,6 +682,9 @@ export default function ClientsList() {
                       </TableCell>
                       <TableCell>
                         <ClientStatusBadge status={client.status} />
+                      </TableCell>
+                      <TableCell>
+                        <ProjectStatusBadge status={client.projectStatus} />
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>

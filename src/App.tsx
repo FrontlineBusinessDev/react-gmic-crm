@@ -7,6 +7,7 @@ import ClientsList from "@/pages/clients/ClientsList";
 import ClientDetail from "@/pages/clients/ClientDetail";
 import LeadsPipeline from "@/pages/leads/LeadsPipeline";
 import Inventory from "@/pages/inventory/Inventory";
+import BatchDetail from "@/pages/inventory/BatchDetail";
 import Suppliers from "@/pages/suppliers/Suppliers";
 import ServiceCatalog from "@/pages/service-catalog/ServiceCatalog";
 import Schedule from "@/pages/technicians/Schedule";
@@ -78,10 +79,18 @@ export default function App() {
             }
           />
           <Route
-            path="/inventory"
+            path="/product"
             element={
-              <ProtectedRoute module="/inventory">
+              <ProtectedRoute module="/product">
                 <Inventory />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/product/batches/:id"
+            element={
+              <ProtectedRoute module="/product">
+                <BatchDetail />
               </ProtectedRoute>
             }
           />

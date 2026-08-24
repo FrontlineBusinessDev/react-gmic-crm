@@ -5,14 +5,14 @@ export const mockRoles: RoleDefinition[] = [
     id: "admin",
     label: "Administrator",
     description: "Full visibility and access across all modules.",
-    modules: ["/", "/clients", "/leads", "/inventory", "/suppliers", "/service-catalog", "/schedule", "/billing", "/reports", "/settings"],
+    modules: ["/", "/clients", "/leads", "/product", "/suppliers", "/service-catalog", "/schedule", "/billing", "/reports", "/settings"],
     status: "active",
   },
   {
     id: "sales",
     label: "Sales & Client Relations",
     description: "Clients, leads, inventory, scheduling, and billing.",
-    modules: ["/", "/clients", "/leads", "/inventory", "/suppliers", "/service-catalog", "/schedule", "/billing"],
+    modules: ["/", "/clients", "/leads", "/product", "/suppliers", "/service-catalog", "/schedule", "/billing"],
     status: "archived",
   },
   {

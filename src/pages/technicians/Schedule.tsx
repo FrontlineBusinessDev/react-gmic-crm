@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import {
+  addDays,
   addMonths,
+  addWeeks,
   eachDayOfInterval,
   endOfMonth,
   endOfWeek,
@@ -10,7 +12,9 @@ import {
   parseISO,
   startOfMonth,
   startOfWeek,
+  subDays,
   subMonths,
+  subWeeks,
 } from "date-fns";
 import {
   Plus,
@@ -20,8 +24,6 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  LayoutGrid,
-  List as ListIcon,
   Trash2,
   AlertTriangle,
   Pencil,
@@ -58,8 +60,11 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
 import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
+import { TimelineView } from "@/components/schedule/timeline-view";
+import { JobNotesPanel } from "@/components/schedule/job-notes";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
+import { useAuthStore } from "@/store/authStore";
 import { mockUsers } from "@/data/users";
 import { cn, initials } from "@/lib/utils";
 import type { JobStatus, JobType, ScheduleJob } from "@/types";
@@ -125,7 +130,9 @@ export default function Schedule() {
     updateJobStatus,
     deleteJob,
     auditLog,
+    addJobNote,
   } = useCrmStore();
+  const currentUser = useAuthStore((s) => s.currentUser);
   const activeServices = useMemo(
     () => serviceCatalog.filter((s) => (s.status ?? "active") === "active"),
     [serviceCatalog],
@@ -137,7 +144,7 @@ export default function Schedule() {
   const [open, setOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   // Smart default: the month grid is too dense for phones, so start narrow viewports on the mobile-friendly agenda cards instead.
-  const [view, setView] = useState<"month" | "list">(() =>
+  const [view, setView] = useState<"day" | "week" | "month" | "list">(() =>
     typeof window !== "undefined" &&
     window.matchMedia("(max-width: 767px)").matches
       ? "list"
@@ -146,7 +153,19 @@ export default function Schedule() {
   const [anchorMonth, setAnchorMonth] = useState(() =>
     startOfMonth(new Date()),
   );
+  // Anchor date for Week/Day views only — Month view keeps its own anchorMonth/navigation untouched.
+  const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [importOpen, setImportOpen] = useState(false);
+
+  function goToPreviousPeriod() {
+    setAnchorDate((d) => (view === "week" ? subWeeks(d, 1) : subDays(d, 1)));
+  }
+  function goToNextPeriod() {
+    setAnchorDate((d) => (view === "week" ? addWeeks(d, 1) : addDays(d, 1)));
+  }
+  function goToToday() {
+    setAnchorDate(new Date());
+  }
 
   function handleScheduleImport(rows: Record<string, string>[]) {
     const errors: string[] = [];
@@ -290,10 +309,10 @@ export default function Schedule() {
     ? (jobsByDate.get(dayDialogDate) ?? [])
     : [];
 
-  function openQuickAdd(iso: string) {
+  function openQuickAdd(iso: string, time?: string) {
     setDayDialogDate(null);
     setEditingJobId(null);
-    setForm({ ...emptyForm, date: iso });
+    setForm({ ...emptyForm, date: iso, time: time ?? emptyForm.time });
     setOpen(true);
   }
 
@@ -663,16 +682,26 @@ export default function Schedule() {
               )}
             </div>
 
-            <Tabs value={view} onValueChange={(v) => setView(v as typeof view)}>
-              <TabsList>
-                <TabsTrigger value="month">
-                  <LayoutGrid className="h-3.5 w-3.5" /> Month
-                </TabsTrigger>
-                <TabsTrigger value="list">
-                  <ListIcon className="h-3.5 w-3.5" /> Agenda
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <Select
+              value={view}
+              onValueChange={(v) => {
+                const next = v as typeof view;
+                if ((next === "week" || next === "day") && view === "month") {
+                  setAnchorDate(anchorMonth);
+                }
+                setView(next);
+              }}
+            >
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="day">Day</SelectItem>
+                <SelectItem value="week">Week</SelectItem>
+                <SelectItem value="month">Month</SelectItem>
+                <SelectItem value="list">Agenda</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-ink-500">
@@ -685,9 +714,50 @@ export default function Schedule() {
           </div>
 
           <FilterTransition
-            filterKey={`${view}-${technicianFilter}-${typeFilter}-${statusFilter}-${dateScope}-${anchorMonth.toISOString()}-${page}`}
+            filterKey={`${view}-${technicianFilter}-${typeFilter}-${statusFilter}-${dateScope}-${anchorMonth.toISOString()}-${anchorDate.toISOString()}-${page}`}
           >
-            {view === "month" ? (
+            {view === "week" || view === "day" ? (
+              <Card className="overflow-hidden">
+                <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={goToPreviousPeriod}
+                      aria-label="Previous"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={goToNextPeriod}
+                      aria-label="Next"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={goToToday}>
+                      Today
+                    </Button>
+                    <h3 className="font-display text-base font-semibold text-ink-800">
+                      {view === "week"
+                        ? `Week of ${format(startOfWeek(anchorDate), "MMM d, yyyy")}`
+                        : format(anchorDate, "EEEE, MMMM d, yyyy")}
+                    </h3>
+                  </div>
+                </div>
+                <TimelineView
+                  daysToShow={view === "week" ? 7 : 1}
+                  anchorDate={anchorDate}
+                  jobsByDate={jobsByDate}
+                  statusDot={statusDot}
+                  onJobClick={setActiveJob}
+                  onSlotClick={openQuickAdd}
+                />
+              </Card>
+            ) : view === "month" ? (
               <Card className="overflow-hidden">
                 <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -1053,6 +1123,58 @@ export default function Schedule() {
                     <p className="mt-1 text-ink-700">{activeJob.notes}</p>
                   </div>
                 )}
+                {activeJob.additionalMaterials && (
+                  <div className="rounded-lg bg-ink-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                      Additional Materials
+                    </p>
+                    <div className="mt-1 space-y-0.5 text-ink-700">
+                      {activeJob.additionalMaterials.excessCopperFeet != null && (
+                        <p>Excess Copper: {activeJob.additionalMaterials.excessCopperFeet} ft</p>
+                      )}
+                      {activeJob.additionalMaterials.breaker && (
+                        <p>Breaker: {activeJob.additionalMaterials.breaker}</p>
+                      )}
+                      {activeJob.additionalMaterials.excessElectricalWireFeet != null && (
+                        <p>Excess Electrical Wire: {activeJob.additionalMaterials.excessElectricalWireFeet} ft</p>
+                      )}
+                      {activeJob.additionalMaterials.pvc && (
+                        <p>PVC: {activeJob.additionalMaterials.pvc}</p>
+                      )}
+                      {activeJob.additionalMaterials.others && (
+                        <p>Others: {activeJob.additionalMaterials.others}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">
+                    Notes &amp; Photos
+                  </p>
+                  <JobNotesPanel
+                    entries={activeJob.noteEntries ?? []}
+                    onAddNote={(text, photos) => {
+                      const authorId = currentUser?.id ?? "office";
+                      const authorName = currentUser?.name ?? "You";
+                      addJobNote(activeJob.id, { authorId, authorName, text, photos });
+                      setActiveJob({
+                        ...activeJob,
+                        noteEntries: [
+                          ...(activeJob.noteEntries ?? []),
+                          {
+                            id: `pending-${Date.now()}`,
+                            authorId,
+                            authorName,
+                            timestamp: new Date().toISOString(),
+                            text: text || undefined,
+                            photos,
+                          },
+                        ],
+                      });
+                    }}
+                  />
+                </div>
               </div>
               <DialogFooter>
                 <Button

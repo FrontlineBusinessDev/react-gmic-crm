@@ -179,7 +179,8 @@ export default function Billing() {
     }, 0);
     const overdue = invoices.filter((i) => i.status === "overdue").length;
     const collected = invoices.reduce((s, i) => s + i.amountPaid, 0);
-    return { outstanding, overdue, collected };
+    const contractPrice = invoices.reduce((sum, i) => sum + i.items.reduce((s, li) => s + li.qty * li.unitPrice, 0), 0);
+    return { outstanding, overdue, collected, contractPrice };
   }, [invoices]);
 
   function openAddInvoice() {
@@ -427,9 +428,10 @@ export default function Billing() {
         onImport={handleBillingImport}
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+        <Card><CardContent className="p-5"><p className="text-xs font-medium uppercase text-ink-500">Total Contract Price</p><p className="mt-1 font-display text-xl font-semibold text-ink-800">{formatCurrency(totals.contractPrice)}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-xs font-medium uppercase text-ink-500">Outstanding</p><p className="mt-1 font-display text-xl font-semibold text-brand-crimson-600">{formatCurrency(totals.outstanding)}</p></CardContent></Card>
-        <Card><CardContent className="p-5"><p className="text-xs font-medium uppercase text-ink-500">Collected</p><p className="mt-1 font-display text-xl font-semibold text-brand-green-600">{formatCurrency(totals.collected)}</p></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-xs font-medium uppercase text-ink-500">Total Payment Received</p><p className="mt-1 font-display text-xl font-semibold text-brand-green-600">{formatCurrency(totals.collected)}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-xs font-medium uppercase text-ink-500">Overdue Invoices</p><p className="mt-1 font-display text-xl font-semibold text-ink-800">{totals.overdue}</p></CardContent></Card>
       </div>
 

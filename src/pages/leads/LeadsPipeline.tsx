@@ -15,7 +15,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
 import { usePagination } from "@/lib/use-pagination";
-import { LeadStageBadge } from "@/components/shared/status-badge";
+import { ProjectStatusBadge } from "@/components/shared/status-badge";
 import {
   Dialog,
   DialogContent,
@@ -28,19 +28,20 @@ import {
 import { useCrmStore } from "@/store/crmStore";
 import { SurveyPhotoGrid } from "@/components/shared/survey-photos";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
-import type { Client, Lead, LeadStage } from "@/types";
+import type { Client, Lead, ProjectStatus } from "@/types";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-const stages: { key: LeadStage; label: string; accent: string }[] = [
-  { key: "inquiry", label: "Inquiry", accent: "border-t-ink-300" },
-  { key: "survey_done", label: "Survey Done", accent: "border-t-brand-cyan-500" },
-  { key: "proposal_sent", label: "Proposal Sent", accent: "border-t-amber-500" },
-  { key: "won", label: "Won", accent: "border-t-brand-green-500" },
-  { key: "lost", label: "Lost", accent: "border-t-brand-crimson-500" },
+const stages: { key: ProjectStatus; label: string; accent: string }[] = [
+  { key: "Inquiry", label: "Inquiry", accent: "border-t-ink-300" },
+  { key: "Site Visit", label: "Site Visit", accent: "border-t-brand-cyan-500" },
+  { key: "Quotation", label: "Quotation", accent: "border-t-brand-cyan-500" },
+  { key: "Follow-Up", label: "Follow-Up", accent: "border-t-amber-500" },
+  { key: "Project Won", label: "Project Won", accent: "border-t-brand-green-500" },
+  { key: "Project Lost", label: "Project Lost", accent: "border-t-brand-crimson-500" },
 ];
 
 const sources: (Lead["source"] | "all")[] = ["all", "Facebook Messenger", "Referral", "Walk-in", "Website", "Phone Call"];
-const stageFilters: (LeadStage | "all")[] = ["all", "inquiry", "survey_done", "proposal_sent", "won", "lost"];
+const stageFilters: (ProjectStatus | "all")[] = ["all", "Inquiry", "Site Visit", "Quotation", "Follow-Up", "Project Won", "Project Lost"];
 const KANBAN_COLUMN_HEIGHT = "max-h-[560px]";
 
 export default function LeadsPipeline() {
@@ -72,9 +73,9 @@ export default function LeadsPipeline() {
   const [stageFilter, setStageFilter] = useState<(typeof stageFilters)[number]>("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
-  const [dragOverStage, setDragOverStage] = useState<LeadStage | null>(null);
+  const [dragOverStage, setDragOverStage] = useState<ProjectStatus | null>(null);
   const [pendingAction, setPendingAction] = useState<
-    | { kind: "move"; lead: Lead; toStage: LeadStage; toLabel: string }
+    | { kind: "move"; lead: Lead; toStage: ProjectStatus; toLabel: string }
     | { kind: "lost"; lead: Lead }
     | { kind: "convert"; lead: Lead }
     | null
@@ -157,7 +158,7 @@ export default function LeadsPipeline() {
       source: form.source,
       interestedUnit: form.interestedUnit,
       estimatedValue: Number(form.estimatedValue) || 0,
-      stage: "inquiry",
+      stage: "Inquiry",
       assignedTo: "u-sales",
       notes: form.notes,
     });
@@ -177,7 +178,7 @@ export default function LeadsPipeline() {
       moveLeadStage(pendingAction.lead.id, pendingAction.toStage);
       if (detailLead?.id === pendingAction.lead.id) setDetailLead({ ...detailLead, stage: pendingAction.toStage });
     } else if (pendingAction.kind === "lost") {
-      moveLeadStage(pendingAction.lead.id, "lost", "Marked lost from pipeline");
+      moveLeadStage(pendingAction.lead.id, "Project Lost", "Marked lost from pipeline");
       setDetailLead(null);
     } else if (pendingAction.kind === "convert") {
       handleConvert(pendingAction.lead);
@@ -403,8 +404,8 @@ export default function LeadsPipeline() {
                       setDraggedLead(null);
                       return;
                     }
-                    if (stage.key === "won") setPendingAction({ kind: "convert", lead: draggedLead });
-                    else if (stage.key === "lost") setPendingAction({ kind: "lost", lead: draggedLead });
+                    if (stage.key === "Project Won") setPendingAction({ kind: "convert", lead: draggedLead });
+                    else if (stage.key === "Project Lost") setPendingAction({ kind: "lost", lead: draggedLead });
                     else setPendingAction({ kind: "move", lead: draggedLead, toStage: stage.key, toLabel: stage.label });
                     setDraggedLead(null);
                   }}
@@ -419,7 +420,7 @@ export default function LeadsPipeline() {
                     }`}
                   >
                     {stageLeads.map((lead, i) => {
-                      const draggable = lead.stage !== "won" && lead.stage !== "lost";
+                      const draggable = lead.stage !== "Project Won" && lead.stage !== "Project Lost";
                       return (
                         <motion.div
                           key={lead.id}
@@ -488,7 +489,7 @@ export default function LeadsPipeline() {
                         <p className="text-sm font-medium text-ink-800">{lead.clientName}</p>
                         <p className="text-xs text-ink-500">{lead.interestedUnit || "—"}</p>
                       </div>
-                      <LeadStageBadge stage={lead.stage} />
+                      <ProjectStatusBadge status={lead.stage} />
                     </div>
                     <MobileListRow label="Source">{lead.source}</MobileListRow>
                     <MobileListRow label="Est. value">{formatCurrency(lead.estimatedValue)}</MobileListRow>
@@ -518,7 +519,7 @@ export default function LeadsPipeline() {
                         </TableCell>
                         <TableCell className="text-sm text-ink-600">{lead.source}</TableCell>
                         <TableCell className="text-sm font-medium text-brand-blue-600">{formatCurrency(lead.estimatedValue)}</TableCell>
-                        <TableCell><LeadStageBadge stage={lead.stage} /></TableCell>
+                        <TableCell><ProjectStatusBadge status={lead.stage} /></TableCell>
                         <TableCell className="text-xs text-ink-500">{formatDateTime(lead.createdAt)}</TableCell>
                         <TableCell className="text-xs text-ink-500">{formatDateTime(lead.updatedAt)}</TableCell>
                       </TableRow>
@@ -574,10 +575,10 @@ export default function LeadsPipeline() {
               </div>
 
               <DialogFooter className="flex-wrap gap-2">
-                {detailLead.stage !== "won" && detailLead.stage !== "lost" && (
+                {detailLead.stage !== "Project Won" && detailLead.stage !== "Project Lost" && (
                   <>
                     {stages
-                      .filter((s) => s.key !== detailLead.stage && s.key !== "lost" && s.key !== "won")
+                      .filter((s) => s.key !== detailLead.stage && s.key !== "Project Lost" && s.key !== "Project Won")
                       .map((s) => (
                         <Button
                           key={s.key}

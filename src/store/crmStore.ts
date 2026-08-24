@@ -2,12 +2,14 @@ import { create } from "zustand";
 import type {
   Client,
   Lead,
-  LeadStage,
+  ProjectStatus,
   InventoryItem,
   InventoryCategoryDefinition,
   PurchaseBatch,
   PurchaseBatchLine,
   ScheduleJob,
+  AdditionalMaterialsUsage,
+  JobNoteEntry,
   Invoice,
   PaymentRecord,
   ActivityItem,
@@ -22,7 +24,6 @@ import type {
   Role,
   RoleDefinition,
   ReorderRequest,
-  DeliveryProof,
 } from "@/types";
 import { mockClients } from "@/data/clients";
 import { mockLeads } from "@/data/leads";
@@ -107,17 +108,18 @@ interface CrmState {
 
   // Leads
   addLead: (lead: Omit<Lead, "id" | "createdAt" | "updatedAt">) => void;
-  moveLeadStage: (leadId: string, stage: LeadStage, lostReason?: string) => void;
+  moveLeadStage: (leadId: string, stage: ProjectStatus, lostReason?: string) => void;
   addSurveyReport: (leadId: string, report: Omit<SurveyReport, "id" | "submittedAt">) => void;
   convertLeadToClient: (leadId: string) => string | null;
 
   // Clients / Units
   addClient: (
-    client: Omit<Client, "id" | "createdAt" | "units" | "balance" | "totalBilled" | "totalPaid"> & {
+    client: Omit<Client, "id" | "createdAt" | "units" | "balance" | "totalBilled" | "totalPaid" | "projectStatus"> & {
       units?: Omit<Unit, "id" | "serviceHistory">[];
     }
   ) => string;
   updateClient: (id: string, updates: Partial<Omit<Client, "id">>) => void;
+  updateClientProjectStatus: (id: string, status: ProjectStatus) => void;
   archiveClient: (id: string) => void;
   restoreClient: (id: string) => void;
   addUnitToClient: (clientId: string, unit: Omit<Unit, "id" | "serviceHistory">) => void;
@@ -129,6 +131,7 @@ interface CrmState {
 
   // Inventory
   deductInventory: (itemId: string, qty: number, serial?: string) => void;
+  markSerializedUnitInstalled: (itemId: string, serializedUnitId: string) => void;
   addInventoryItem: (item: Omit<InventoryItem, "id">) => void;
   updateInventoryItem: (id: string, updates: Partial<Omit<InventoryItem, "id">>) => void;
   archiveInventoryItem: (id: string) => void;
@@ -145,11 +148,12 @@ interface CrmState {
   addPurchaseBatch: (input: { supplier: string; lines: Omit<PurchaseBatchLine, "id">[] }) => string;
   receivePurchaseBatch: (id: string) => void;
   cancelPurchaseBatch: (id: string) => void;
+  recordBatchPayment: (id: string, amount: number) => void;
 
   // Reorder Requests
   addReorderRequest: (input: { inventoryItemId: string; quantityRequested: number; notes?: string }) => void;
   markReorderOrdered: (id: string) => void;
-  markReorderDelivered: (id: string, proof?: DeliveryProof) => void;
+  linkReorderRequestsToBatch: (requestIds: string[], batchId: string) => void;
   cancelReorderRequest: (id: string, cancelledVia: "email" | "phone", note?: string) => void;
 
   // Suppliers
@@ -180,6 +184,8 @@ interface CrmState {
   addJob: (job: Omit<ScheduleJob, "id">) => void;
   updateJob: (jobId: string, updates: Omit<ScheduleJob, "id">) => void;
   updateJobStatus: (jobId: string, status: JobStatus) => InstallationOutcome | undefined;
+  logAdditionalMaterials: (jobId: string, materials: AdditionalMaterialsUsage) => void;
+  addJobNote: (jobId: string, entry: { authorId: string; authorName: string; text?: string; photos?: string[] }) => void;
   deleteJob: (jobId: string) => void;
   claimJob: (jobId: string, technicianId: string) => boolean;
 
@@ -241,7 +247,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     set((s) => ({
       leads: s.leads.map((l) =>
         l.id === leadId
-          ? { ...l, stage, lostReason: stage === "lost" ? lostReason : undefined, updatedAt: new Date().toISOString() }
+          ? { ...l, stage, lostReason: stage === "Project Lost" ? lostReason : undefined, updatedAt: new Date().toISOString() }
           : l
       ),
     }));
@@ -249,7 +255,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     if (lead) {
       get().logActivity({
         type: "lead",
-        message: `${lead.clientName} moved to "${stage.replace("_", " ")}"`,
+        message: `${lead.clientName} moved to "${stage}"`,
         actor: "You",
       });
     }
@@ -263,7 +269,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     };
     set((s) => ({
       leads: s.leads.map((l) =>
-        l.id === leadId ? { ...l, surveyReport: newReport, stage: "survey_done" as LeadStage } : l
+        l.id === leadId ? { ...l, surveyReport: newReport, stage: "Site Visit" as ProjectStatus } : l
       ),
     }));
     get().logActivity({
@@ -285,7 +291,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       tags: ["Converted Lead"],
     });
     set((s) => ({
-      leads: s.leads.map((l) => (l.id === leadId ? { ...l, stage: "won" as LeadStage, updatedAt: new Date().toISOString() } : l)),
+      leads: s.leads.map((l) => (l.id === leadId ? { ...l, stage: "Project Won" as ProjectStatus, updatedAt: new Date().toISOString() } : l)),
     }));
     get().logActivity({
       type: "lead",
@@ -306,10 +312,23 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       balance: 0,
       totalBilled: 0,
       totalPaid: 0,
+      projectStatus: "Project Won",
     };
     set((s) => ({ clients: [newClient, ...s.clients] }));
     get().logAudit({ module: "client", entityId: id, entityLabel: newClient.name, action: "create", changes: [], actor: "You" });
     return id;
+  },
+
+  updateClientProjectStatus: (id, status) => {
+    set((s) => ({ clients: s.clients.map((c) => (c.id === id ? { ...c, projectStatus: status } : c)) }));
+    const client = get().clients.find((c) => c.id === id);
+    if (client) {
+      get().logActivity({
+        type: "note",
+        message: `${client.name} moved to "${status}"`,
+        actor: "You",
+      });
+    }
   },
 
   updateClient: (id, updates) => {
@@ -380,12 +399,40 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         const updated: InventoryItem = { ...item, quantityOnHand: Math.max(0, item.quantityOnHand - qty) };
         if (serial && item.serializedUnits) {
           updated.serializedUnits = item.serializedUnits.map((su) =>
-            su.serial === serial ? { ...su, status: "installed" } : su
+            su.serialIndoor === serial ? { ...su, status: "installed" } : su
           );
         }
         return updated;
       }),
     }));
+  },
+
+  // Marks a specific in-stock serial as installed (e.g. linked to a client's unit) without
+  // touching quantityOnHand — stock is only deducted when the unit is sold via an Invoice.
+  markSerializedUnitInstalled: (itemId, serializedUnitId) => {
+    const item = get().inventory.find((i) => i.id === itemId);
+    const su = item?.serializedUnits?.find((u) => u.id === serializedUnitId);
+    if (!item || !su) return;
+    set((s) => ({
+      inventory: s.inventory.map((i) =>
+        i.id === itemId
+          ? {
+              ...i,
+              serializedUnits: i.serializedUnits?.map((u) =>
+                u.id === serializedUnitId ? { ...u, status: "installed" } : u
+              ),
+            }
+          : i
+      ),
+    }));
+    get().logAudit({
+      module: "inventory",
+      entityId: itemId,
+      entityLabel: item.name,
+      action: "update",
+      changes: [{ field: "serial " + su.serialIndoor, oldValue: su.status, newValue: "installed" }],
+      actor: "You",
+    });
   },
 
   addInventoryItem: (item) => {
@@ -492,6 +539,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       supplier,
       lines: fullLines,
       totalCost,
+      amountPaid: 0,
       status: "open",
       createdAt: new Date().toISOString(),
       createdBy: "You",
@@ -517,7 +565,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       const newSerialized = line.serials?.length
         ? [
             ...(item.serializedUnits ?? []),
-            ...line.serials.map((serial) => ({ id: nextId("su"), serial, status: "in_stock" as const })),
+            ...line.serials.map((pair) => ({ id: nextId("su"), serialIndoor: pair.serialIndoor, serialOutdoor: pair.serialOutdoor, status: "in_stock" as const })),
           ]
         : item.serializedUnits;
       set((s) => ({
@@ -540,6 +588,26 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       });
     }
     get().logAudit({ module: "purchaseBatch", entityId: id, entityLabel: batch.batchNumber, action: "update", changes: [{ field: "status", oldValue: "open", newValue: "received" }], actor: "You" });
+
+    // Any reorder requests bundled into this batch are now fulfilled.
+    const linkedRequests = get().reorderRequests.filter((r) => r.batchId === id);
+    if (linkedRequests.length > 0) {
+      set((s) => ({
+        reorderRequests: s.reorderRequests.map((r) =>
+          r.batchId === id ? { ...r, status: "delivered", deliveredAt: receivedAt } : r
+        ),
+      }));
+      for (const req of linkedRequests) {
+        get().logAudit({
+          module: "reorderRequest",
+          entityId: req.id,
+          entityLabel: req.itemName,
+          action: "update",
+          changes: [{ field: "status", oldValue: req.status, newValue: "delivered" }],
+          actor: "You",
+        });
+      }
+    }
   },
 
   cancelPurchaseBatch: (id) => {
@@ -547,6 +615,41 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     if (!batch || batch.status !== "open") return;
     set((s) => ({ purchaseBatches: s.purchaseBatches.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)) }));
     get().logAudit({ module: "purchaseBatch", entityId: id, entityLabel: batch.batchNumber, action: "update", changes: [{ field: "status", oldValue: "open", newValue: "cancelled" }], actor: "You" });
+
+    // Unlink any reorder requests that were bundled into this batch so they can be re-batched or cancelled.
+    const linkedRequests = get().reorderRequests.filter((r) => r.batchId === id);
+    if (linkedRequests.length > 0) {
+      set((s) => ({
+        reorderRequests: s.reorderRequests.map((r) => (r.batchId === id ? { ...r, batchId: undefined } : r)),
+      }));
+      for (const req of linkedRequests) {
+        get().logAudit({
+          module: "reorderRequest",
+          entityId: req.id,
+          entityLabel: req.itemName,
+          action: "update",
+          changes: [{ field: "batchId", oldValue: id, newValue: null }],
+          actor: "You",
+        });
+      }
+    }
+  },
+
+  recordBatchPayment: (id, amount) => {
+    const batch = get().purchaseBatches.find((b) => b.id === id);
+    if (!batch || amount <= 0) return;
+    const newAmountPaid = batch.amountPaid + amount;
+    set((s) => ({
+      purchaseBatches: s.purchaseBatches.map((b) => (b.id === id ? { ...b, amountPaid: newAmountPaid } : b)),
+    }));
+    get().logAudit({
+      module: "purchaseBatch",
+      entityId: id,
+      entityLabel: batch.batchNumber,
+      action: "update",
+      changes: [{ field: "amountPaid", oldValue: batch.amountPaid, newValue: newAmountPaid }],
+      actor: "You",
+    });
   },
 
   addReorderRequest: ({ inventoryItemId, quantityRequested, notes }) => {
@@ -584,34 +687,22 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     });
   },
 
-  markReorderDelivered: (id, proof) => {
-    const req = get().reorderRequests.find((r) => r.id === id);
-    if (!req) return;
-    const deliveredAt = new Date().toISOString();
+  // Bundles ordered requests into a batch line so receiving flows exclusively through
+  // receivePurchaseBatch — request status stays "ordered" until the batch is received.
+  linkReorderRequestsToBatch: (requestIds, batchId) => {
+    const batch = get().purchaseBatches.find((b) => b.id === batchId);
+    const requests = get().reorderRequests.filter((r) => requestIds.includes(r.id));
+    if (requests.length === 0) return;
     set((s) => ({
-      reorderRequests: s.reorderRequests.map((r) => (r.id === id ? { ...r, status: "delivered", deliveredAt, deliveryProof: proof } : r)),
+      reorderRequests: s.reorderRequests.map((r) => (requestIds.includes(r.id) ? { ...r, batchId } : r)),
     }));
-    get().logAudit({
-      module: "reorderRequest",
-      entityId: id,
-      entityLabel: req.itemName,
-      action: "update",
-      changes: [
-        { field: "status", oldValue: req.status, newValue: "delivered" },
-        { field: "deliveryProof", oldValue: null, newValue: proof ? proof.name : "No photo/invoice uploaded" },
-      ],
-      actor: "You",
-    });
-    const item = get().inventory.find((i) => i.id === req.inventoryItemId);
-    if (item) {
-      const newQty = item.quantityOnHand + req.quantityRequested;
-      set((s) => ({ inventory: s.inventory.map((i) => (i.id === item.id ? { ...i, quantityOnHand: newQty } : i)) }));
+    for (const req of requests) {
       get().logAudit({
-        module: "inventory",
-        entityId: item.id,
-        entityLabel: item.name,
+        module: "reorderRequest",
+        entityId: req.id,
+        entityLabel: req.itemName,
         action: "update",
-        changes: [{ field: "quantityOnHand", oldValue: item.quantityOnHand, newValue: newQty }],
+        changes: [{ field: "batchId", oldValue: null, newValue: batch?.batchNumber ?? batchId }],
         actor: "You",
       });
     }
@@ -897,6 +988,40 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       return { invoiceNumber, warrantyExpiresOn, nextPmsDate };
     }
     return undefined;
+  },
+
+  logAdditionalMaterials: (jobId, materials) => {
+    const job = get().schedule.find((j) => j.id === jobId);
+    if (!job) return;
+    set((s) => ({ schedule: s.schedule.map((j) => (j.id === jobId ? { ...j, additionalMaterials: materials } : j)) }));
+    get().logAudit({
+      module: "schedule",
+      entityId: jobId,
+      entityLabel: job.title,
+      action: "update",
+      changes: [{ field: "additionalMaterials", oldValue: null, newValue: "Recorded" }],
+      actor: "You",
+    });
+  },
+
+  addJobNote: (jobId, entry) => {
+    const job = get().schedule.find((j) => j.id === jobId);
+    if (!job) return;
+    if (!entry.text?.trim() && (!entry.photos || entry.photos.length === 0)) return;
+    const noteEntry: JobNoteEntry = {
+      id: nextId("jobnote"),
+      authorId: entry.authorId,
+      authorName: entry.authorName,
+      timestamp: new Date().toISOString(),
+      text: entry.text?.trim() || undefined,
+      photos: entry.photos,
+    };
+    set((s) => ({
+      schedule: s.schedule.map((j) =>
+        j.id === jobId ? { ...j, noteEntries: [...(j.noteEntries ?? []), noteEntry] } : j
+      ),
+    }));
+    get().logActivity({ type: "note", message: `${entry.authorName} added a note to ${job.title}`, actor: entry.authorName });
   },
 
   deleteJob: (jobId) => {

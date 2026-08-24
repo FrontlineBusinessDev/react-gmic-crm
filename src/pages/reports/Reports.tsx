@@ -72,7 +72,7 @@ export default function Reports() {
             </CardContent></Card>
           </div>
           {inventoryReport.rows.length === 0 ? (
-            <EmptyState icon={Boxes} title="No active inventory items" description="Add items in the Inventory module to see this report." />
+            <EmptyState icon={Boxes} title="No active inventory items" description="Add items in the Product module to see this report." />
           ) : (
             <Card>
               <MobileList>
@@ -179,8 +179,8 @@ export default function Reports() {
                   <MobileListCard key={r.clientId}>
                     <p className="font-medium text-ink-800">{r.clientName}</p>
                     <MobileListRow label="Invoices">{r.invoiceCount}</MobileListRow>
-                    <MobileListRow label="Total billed">{formatCurrency(r.totalBilled)}</MobileListRow>
-                    <MobileListRow label="Total paid">{formatCurrency(r.totalPaid)}</MobileListRow>
+                    <MobileListRow label="Total contract price">{formatCurrency(r.totalBilled)}</MobileListRow>
+                    <MobileListRow label="Total payment received">{formatCurrency(r.totalPaid)}</MobileListRow>
                     <MobileListRow label="Balance">
                       <span className={r.balance > 0 ? "font-medium text-brand-crimson-600" : "text-ink-500"}>{formatCurrency(r.balance)}</span>
                     </MobileListRow>
@@ -193,8 +193,8 @@ export default function Reports() {
                     <TableRow>
                       <TableHead>Client</TableHead>
                       <TableHead>Invoices</TableHead>
-                      <TableHead>Total Billed</TableHead>
-                      <TableHead>Total Paid</TableHead>
+                      <TableHead>Total Contract Price</TableHead>
+                      <TableHead>Total Payment Received</TableHead>
                       <TableHead>Balance</TableHead>
                     </TableRow>
                   </TableHeader>

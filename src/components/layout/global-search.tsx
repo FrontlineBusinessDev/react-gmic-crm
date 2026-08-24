@@ -6,7 +6,7 @@ import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from "@/components/u
 import { useCrmStore } from "@/store/crmStore";
 import { cn } from "@/lib/utils";
 
-type Category = "Clients" | "Leads" | "Inventory" | "Service Catalog" | "Invoices";
+type Category = "Clients" | "Leads" | "Product" | "Service Catalog" | "Invoices";
 
 interface ResultItem {
   id: string;
@@ -86,11 +86,11 @@ export function GlobalSearch() {
       if (!haystack.includes(q)) continue;
       items.push({
         id: `inventory-${i.id}`,
-        category: "Inventory",
+        category: "Product",
         icon: Boxes,
         title: i.name,
         subtitle: `${i.sku} • ${i.category}`,
-        onSelect: () => select(() => navigate(`/inventory?q=${encodeURIComponent(i.name)}`)),
+        onSelect: () => select(() => navigate(`/product?q=${encodeURIComponent(i.name)}`)),
       });
     }
 

@@ -60,6 +60,25 @@ export interface ServiceRecord {
 
 export type ClientStatus = "active" | "lead" | "inactive" | "archived";
 
+export type ClientSource = "GMIC" | "Imperial" | "MegaSaver" | "Alfamart";
+
+// ---------- Project Pipeline ----------
+// Unified status spanning a client's full lifecycle, from first inquiry through
+// PMS. Pre-conversion, this drives Lead.stage / the leads kanban; post-conversion
+// it's carried on Client.projectStatus and advanced manually from the client page.
+export type ProjectStatus =
+  | "Inquiry"
+  | "Site Visit"
+  | "Quotation"
+  | "Follow-Up"
+  | "Project Won"
+  | "Project Lost"
+  | "Phase 1 Installation"
+  | "Phase 2 Installation"
+  | "Billing"
+  | "Collection"
+  | "PMS";
+
 export interface Client {
   id: string;
   name: string;
@@ -67,7 +86,9 @@ export interface Client {
   phone: string;
   email: string;
   address: string;
+  source?: ClientSource;
   status: ClientStatus;
+  projectStatus: ProjectStatus;
   createdAt: string;
   dateOfEngagement?: string;
   units: Unit[];
@@ -79,8 +100,6 @@ export interface Client {
 
 // ---------- Leads / Pipeline ----------
 
-export type LeadStage = "inquiry" | "survey_done" | "proposal_sent" | "won" | "lost";
-
 export interface Lead {
   id: string;
   clientName: string;
@@ -90,7 +109,7 @@ export interface Lead {
   source: "Facebook Messenger" | "Referral" | "Walk-in" | "Website" | "Phone Call";
   interestedUnit: string;
   estimatedValue: number;
-  stage: LeadStage;
+  stage: ProjectStatus;
   assignedTo: string; // user id
   createdAt: string;
   updatedAt: string;
@@ -162,7 +181,8 @@ export interface Supplier {
 
 export interface SerializedStockUnit {
   id: string;
-  serial: string;
+  serialIndoor: string;
+  serialOutdoor?: string;
   status: "in_stock" | "reserved" | "installed";
 }
 
@@ -190,6 +210,8 @@ export interface ReorderRequest {
   deliveredAt?: string;
   deliveryProof?: DeliveryProof;
   notes?: string;
+  /** Set once this request has been bundled into a Purchase Batch; cleared if that batch is cancelled. */
+  batchId?: string;
 }
 
 // ---------- Service Catalog ----------
@@ -209,6 +231,24 @@ export interface ServiceCatalogItem {
 export type JobType = "Survey" | "Installation" | "PMS Cleaning" | "Repair" | "Warranty Service";
 export type JobStatus = "scheduled" | "in_progress" | "completed" | "installed" | "cancelled";
 
+export interface AdditionalMaterialsUsage {
+  excessCopperFeet?: number;
+  breaker?: string;
+  excessElectricalWireFeet?: number;
+  pvc?: string;
+  others?: string;
+}
+
+/** A single dated note (with optional photos) posted by an admin or technician to a job — appended, never overwritten. */
+export interface JobNoteEntry {
+  id: string;
+  authorId: string;
+  authorName: string;
+  timestamp: string; // ISO datetime
+  text?: string;
+  photos?: string[]; // object URLs — mock only, not actually uploaded anywhere
+}
+
 export interface ScheduleJob {
   id: string;
   title: string;
@@ -224,6 +264,9 @@ export interface ScheduleJob {
   unitId?: string;
   notes: string;
   serviceId?: string; // ServiceCatalogItem.id used to build the title
+  additionalMaterials?: AdditionalMaterialsUsage;
+  /** Open-ended log of notes/photos added by admins or technicians over the life of the job. */
+  noteEntries?: JobNoteEntry[];
 }
 
 // ---------- Billing ----------
@@ -292,13 +335,18 @@ export interface NotificationItem {
 
 // ---------- Purchase Batches ----------
 
+export interface SerialPair {
+  serialIndoor: string;
+  serialOutdoor?: string;
+}
+
 export interface PurchaseBatchLine {
   id: string;
   inventoryItemId: string;
   itemName: string; // snapshot at batch time
   quantity: number;
   unitCost: number;
-  serials?: string[]; // per-unit serials, for categories that track them
+  serials?: SerialPair[]; // per-unit serial pairs, for categories that track them
 }
 
 export type PurchaseBatchStatus = "open" | "received" | "cancelled";
@@ -309,6 +357,7 @@ export interface PurchaseBatch {
   supplier: string; // matches Supplier.name
   lines: PurchaseBatchLine[];
   totalCost: number;
+  amountPaid: number;
   status: PurchaseBatchStatus;
   createdAt: string;
   createdBy: string;

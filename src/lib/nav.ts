@@ -27,7 +27,7 @@ export const navItems: NavItem[] = [
   { label: "Parts & Inventory", to: "/parts", icon: PackageSearch },
   { label: "Clients", to: "/clients", icon: Users },
   { label: "Leads Pipeline", to: "/leads", icon: Target },
-  { label: "Inventory", to: "/inventory", icon: Boxes },
+  { label: "Product", to: "/product", icon: Boxes },
   { label: "Suppliers", to: "/suppliers", icon: Truck },
   { label: "Service Catalog", to: "/service-catalog", icon: Wrench },
   { label: "Scheduling", to: "/schedule", icon: CalendarClock },

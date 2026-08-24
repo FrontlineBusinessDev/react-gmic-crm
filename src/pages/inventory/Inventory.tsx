@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Plus, AlertTriangle, Boxes, Search, X, Pencil, Archive, ArchiveRestore, PackagePlus, Mail, PhoneCall, Truck, Ban, PackageCheck, Download, Printer, FileText, Eye, ArrowUpDown, Settings2, PackageOpen, PackageX, Wrench, FileUp } from "lucide-react";
+import { useSearchParams, useNavigate, Link } from "react-router-dom";
+import { Plus, AlertTriangle, Boxes, Search, X, Pencil, Archive, ArchiveRestore, PackagePlus, Mail, PhoneCall, Truck, Ban, PackageCheck, Download, Printer, FileText, Eye, ArrowUpDown, Settings2, PackageOpen, PackageX, Wrench, FileUp, ChevronRight } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,12 +25,11 @@ import { InventoryStatusBadge, ReorderRequestStatusBadge } from "@/components/sh
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Pagination } from "@/components/shared/pagination";
-import { FileDropZone } from "@/components/shared/file-drop-zone";
 import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { formatCurrency } from "@/lib/utils";
-import type { InventoryCategory, InventoryItem, InventoryStatus, ReorderRequest, ReorderRequestStatus, DeliveryProof, BomLine, PurchaseBatchLine } from "@/types";
+import type { InventoryCategory, InventoryItem, InventoryStatus, ReorderRequest, ReorderRequestStatus, DeliveryProof, BomLine, PurchaseBatchLine, SerialPair } from "@/types";
 
 const INVENTORY_CSV_HEADERS = ["sku", "name", "category", "quantityOnHand", "reorderLevel", "unitCost", "unitPrice", "supplier"];
 
@@ -52,6 +51,13 @@ function cancelEmailTemplate(itemName: string, sku: string, qty: number) {
   };
 }
 
+// Zips comma-separated indoor/outdoor serial lists by position into serial pairs.
+function buildSerialPairs(indoorInput: string, outdoorInput: string): SerialPair[] {
+  const indoors = indoorInput.split(",").map((s) => s.trim()).filter(Boolean);
+  const outdoors = outdoorInput.split(",").map((s) => s.trim()).filter(Boolean);
+  return indoors.map((serialIndoor, i) => ({ serialIndoor, serialOutdoor: outdoors[i] || undefined }));
+}
+
 const statusFilters: (InventoryStatus | "all")[] = ["all", "active", "archived"];
 const reorderStatusFilters: (ReorderRequestStatus | "all")[] = ["all", "requested", "ordered", "delivered", "cancelled"];
 const emptyForm = {
@@ -67,7 +73,7 @@ const emptyForm = {
 };
 const emptyBatchForm = {
   supplier: "",
-  lines: [] as (Omit<PurchaseBatchLine, "id"> & { key: string; serialsInput: string })[],
+  lines: [] as (Omit<PurchaseBatchLine, "id"> & { key: string; serialsIndoorInput: string; serialsOutdoorInput: string })[],
 };
 
 export default function Inventory() {
@@ -91,18 +97,18 @@ export default function Inventory() {
     reorderRequests,
     addReorderRequest,
     markReorderOrdered,
-    markReorderDelivered,
+    linkReorderRequestsToBatch,
     cancelReorderRequest,
   } = useCrmStore();
 
+  const navigate = useNavigate();
   const activeCategories = useMemo(
     () => inventoryCategories.filter((c) => c.status === "active"),
     [inventoryCategories]
   );
-  const categories = useMemo(() => ["All", ...activeCategories.map((c) => c.name)], [activeCategories]);
-  const [tab, setTab] = useState<string>("All");
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryTracksSerials, setNewCategoryTracksSerials] = useState(false);
   const [categoryEditId, setCategoryEditId] = useState<string | null>(null);
   const [categoryEditName, setCategoryEditName] = useState("");
 
@@ -139,7 +145,7 @@ export default function Inventory() {
   }
   const [query, setQuery] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
-  // Deep-link support: /inventory?q=<name> (e.g. from the global search) prefills the search box.
+  // Deep-link support: /product?q=<name> (e.g. from the global search) prefills the search box.
   const consumedQueryParam = useRef<string | null>(null);
   useEffect(() => {
     const q = searchParams.get("q");
@@ -153,6 +159,7 @@ export default function Inventory() {
   }, [searchParams, setSearchParams]);
   const [lowStockOnly, setLowStockOnly] = useState(false);
   const [statusFilter, setStatusFilter] = useState<(typeof statusFilters)[number]>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [open, setOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<InventoryItem | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -172,17 +179,25 @@ export default function Inventory() {
   const [cancelledViaPhone, setCancelledViaPhone] = useState(false);
   const [cancelEmailForm, setCancelEmailForm] = useState({ subject: "", body: "" });
 
-  const [deliverTarget, setDeliverTarget] = useState<ReorderRequest | null>(null);
-  const [deliveryProofDraft, setDeliveryProofDraft] = useState<DeliveryProof | null>(null);
   const [previewProof, setPreviewProof] = useState<DeliveryProof | null>(null);
 
+  const [selectedRequestIds, setSelectedRequestIds] = useState<Set<string>>(new Set());
+  const [convertOpen, setConvertOpen] = useState(false);
+  const [convertLines, setConvertLines] = useState<
+    (Omit<PurchaseBatchLine, "id"> & { key: string; requestId: string; serialsIndoorInput: string; serialsOutdoorInput: string })[]
+  >([]);
+
   const inventoryAuditEntries = useMemo(
-    () => auditLog.filter((e) => e.module === "inventory" || e.module === "reorderRequest"),
+    () => auditLog.filter((e) => e.module === "inventory" || e.module === "reorderRequest" || e.module === "purchaseBatch"),
     [auditLog]
   );
 
   function supplierFor(name: string) {
     return suppliers.find((s) => s.name === name);
+  }
+
+  function batchFor(batchId?: string) {
+    return batchId ? purchaseBatches.find((b) => b.id === batchId) : undefined;
   }
 
   function openReorder(item: InventoryItem) {
@@ -278,27 +293,67 @@ export default function Inventory() {
     setCancelTarget(null);
   }
 
-  function openDeliverDialog(req: ReorderRequest) {
-    setDeliverTarget(req);
-    setDeliveryProofDraft(null);
+  // A batch can only be built from one supplier's requests at a time (PurchaseBatch.supplier is singular).
+  const lockedSupplier = useMemo(() => {
+    if (selectedRequestIds.size === 0) return null;
+    const first = reorderRequests.find((r) => selectedRequestIds.has(r.id));
+    return first?.supplier ?? null;
+  }, [selectedRequestIds, reorderRequests]);
+
+  function toggleRequestSelected(req: ReorderRequest) {
+    setSelectedRequestIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(req.id)) {
+        next.delete(req.id);
+      } else {
+        next.add(req.id);
+      }
+      return next;
+    });
   }
 
-  function handleDeliveryProofSelect(files: File[]) {
-    const file = files[0];
-    if (!file) return;
-    setDeliveryProofDraft({ url: URL.createObjectURL(file), name: file.name, type: file.type });
+  function openConvertToBatch() {
+    const selected = reorderRequests.filter((r) => selectedRequestIds.has(r.id));
+    if (selected.length === 0) return;
+    setConvertLines(
+      selected.map((req) => {
+        const item = inventory.find((i) => i.id === req.inventoryItemId);
+        return {
+          key: `cl-${req.id}`,
+          requestId: req.id,
+          inventoryItemId: req.inventoryItemId,
+          itemName: req.itemName,
+          quantity: req.quantityRequested,
+          unitCost: item?.unitCost ?? 0,
+          serialsIndoorInput: "",
+          serialsOutdoorInput: "",
+        };
+      })
+    );
+    setConvertOpen(true);
   }
 
-  function clearDeliveryProofDraft() {
-    if (deliveryProofDraft) URL.revokeObjectURL(deliveryProofDraft.url);
-    setDeliveryProofDraft(null);
+  function updateConvertLine(key: string, updates: Partial<(typeof convertLines)[number]>) {
+    setConvertLines((lines) => lines.map((l) => (l.key === key ? { ...l, ...updates } : l)));
   }
 
-  function confirmMarkDelivered() {
-    if (!deliverTarget) return;
-    markReorderDelivered(deliverTarget.id, deliveryProofDraft ?? undefined);
-    setDeliverTarget(null);
-    setDeliveryProofDraft(null);
+  function handleConvertToBatch() {
+    if (!lockedSupplier || convertLines.length === 0) return;
+    const requestIds = convertLines.map((l) => l.requestId);
+    const batchId = addPurchaseBatch({
+      supplier: lockedSupplier,
+      lines: convertLines.map((l) => ({
+        inventoryItemId: l.inventoryItemId,
+        itemName: l.itemName,
+        quantity: l.quantity,
+        unitCost: l.unitCost,
+        serials: buildSerialPairs(l.serialsIndoorInput, l.serialsOutdoorInput),
+      })),
+    });
+    linkReorderRequestsToBatch(requestIds, batchId);
+    setSelectedRequestIds(new Set());
+    setConvertLines([]);
+    setConvertOpen(false);
   }
 
   function downloadProof(proof: DeliveryProof) {
@@ -323,21 +378,22 @@ export default function Inventory() {
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
     return inventory.filter((i) => {
-      const matchesTab = tab === "All" || i.category === tab;
+      const matchesCategory = categoryFilter === "all" || i.category === categoryFilter;
       const matchesQuery = !q || i.name.toLowerCase().includes(q) || i.sku.toLowerCase().includes(q) || i.supplier.toLowerCase().includes(q);
       const matchesLowStock = !lowStockOnly || i.quantityOnHand <= i.reorderLevel;
       const matchesStatus = statusFilter === "all" || (i.status ?? "active") === statusFilter;
-      return matchesTab && matchesQuery && matchesLowStock && matchesStatus;
+      return matchesCategory && matchesQuery && matchesLowStock && matchesStatus;
     });
-  }, [inventory, tab, query, lowStockOnly, statusFilter]);
+  }, [inventory, categoryFilter, query, lowStockOnly, statusFilter]);
 
   const { page, setPage, pageSize, setPageSize, pageItems, total } = usePagination(filtered, 10);
-  const hasActiveFilters = query.trim() !== "" || lowStockOnly || statusFilter !== "all";
+  const hasActiveFilters = query.trim() !== "" || lowStockOnly || statusFilter !== "all" || categoryFilter !== "all";
 
   function clearFilters() {
     setQuery("");
     setLowStockOnly(false);
     setStatusFilter("all");
+    setCategoryFilter("all");
   }
 
   function openAdd() {
@@ -407,6 +463,7 @@ export default function Inventory() {
 
   function openCategoryManager() {
     setNewCategoryName("");
+    setNewCategoryTracksSerials(false);
     setCategoryEditId(null);
     setCategoryManagerOpen(true);
   }
@@ -427,7 +484,7 @@ export default function Inventory() {
     if (!first) return;
     setBatchForm((f) => ({
       ...f,
-      lines: [...f.lines, { key: `bl-${Date.now()}`, inventoryItemId: first.id, itemName: first.name, quantity: 1, unitCost: first.unitCost, serialsInput: "" }],
+      lines: [...f.lines, { key: `bl-${Date.now()}`, inventoryItemId: first.id, itemName: first.name, quantity: 1, unitCost: first.unitCost, serialsIndoorInput: "", serialsOutdoorInput: "" }],
     }));
   }
 
@@ -448,7 +505,7 @@ export default function Inventory() {
         itemName: l.itemName,
         quantity: l.quantity,
         unitCost: l.unitCost,
-        serials: l.serialsInput.split(",").map((s) => s.trim()).filter(Boolean),
+        serials: buildSerialPairs(l.serialsIndoorInput, l.serialsOutdoorInput),
       })),
     });
     setBatchForm(emptyBatchForm);
@@ -458,7 +515,7 @@ export default function Inventory() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Inventory"
+        title="Product"
         description="Units and materials, with automatic deduction on installation."
         actions={
           <div className="flex items-center gap-2">
@@ -611,8 +668,8 @@ export default function Inventory() {
 
       <Tabs defaultValue="list">
         <TabsList>
-          <TabsTrigger value="list">Inventory</TabsTrigger>
-          <TabsTrigger value="batches">Purchase Batches</TabsTrigger>
+          <TabsTrigger value="list">Product</TabsTrigger>
+          <TabsTrigger value="batches">Inventory</TabsTrigger>
           <TabsTrigger value="reorders">
             Reorder Requests
             {reorderRequests.some((r) => r.status === "requested" || r.status === "ordered") && (
@@ -628,49 +685,50 @@ export default function Inventory() {
         </TabsList>
 
         <TabsContent value="list" className="space-y-6">
-          <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <TabsList>
-                {categories.map((c) => (
-                  <TabsTrigger key={c} value={c}>{c}</TabsTrigger>
-                ))}
-              </TabsList>
-
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div className="relative sm:w-56">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
-                  <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search item, SKU, supplier..." className="pl-9" />
-                </div>
-                <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-                  <SelectTrigger className="w-full sm:w-36">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {statusFilters.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant={lowStockOnly ? "brand" : "outline"}
-                  size="sm"
-                  onClick={() => setLowStockOnly((v) => !v)}
-                  className="shrink-0"
-                >
-                  <AlertTriangle className="h-3.5 w-3.5" /> Low stock only
-                </Button>
-                {hasActiveFilters && (
-                  <Button variant="ghost" size="sm" onClick={clearFilters} className="text-ink-500">
-                    <X className="h-3.5 w-3.5" /> Clear
-                  </Button>
-                )}
-              </div>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+            <div className="relative sm:w-56">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search item, SKU, supplier..." className="pl-9" />
             </div>
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-full sm:w-40">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All categories</SelectItem>
+                {activeCategories.map((c) => (
+                  <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+              <SelectTrigger className="w-full sm:w-36">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                {statusFilters.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant={lowStockOnly ? "brand" : "outline"}
+              size="sm"
+              onClick={() => setLowStockOnly((v) => !v)}
+              className="shrink-0"
+            >
+              <AlertTriangle className="h-3.5 w-3.5" /> Low stock only
+            </Button>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="text-ink-500">
+                <X className="h-3.5 w-3.5" /> Clear
+              </Button>
+            )}
+          </div>
 
-            <TabsContent value={tab}>
-              {filtered.length === 0 ? (
+          {filtered.length === 0 ? (
                 <EmptyState icon={Boxes} title="No items match your filters" description="Try a different search term or clear filters." />
               ) : (
                 <Card>
@@ -781,11 +839,9 @@ export default function Inventory() {
                     </TableBody>
                   </Table>
                   </div>
-                  <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
-                </Card>
-              )}
-            </TabsContent>
-          </Tabs>
+              <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="batches" className="space-y-6">
@@ -800,25 +856,32 @@ export default function Inventory() {
             <Card>
               <MobileList>
                 {purchaseBatches.map((batch) => (
-                  <MobileListCard key={batch.id}>
+                  <MobileListCard
+                    key={batch.id}
+                    onClick={() => navigate(`/product/batches/${batch.id}`)}
+                    className="transition-all hover:border-brand-blue-200 hover:shadow-md active:scale-[0.98]"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="font-medium text-ink-800">{batch.batchNumber}</p>
                         <p className="text-xs text-ink-400">{batch.supplier}</p>
                       </div>
-                      <Badge variant={batch.status === "received" ? "success" : batch.status === "cancelled" ? "destructive" : "warning"}>
-                        {batch.status}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant={batch.status === "received" ? "success" : batch.status === "cancelled" ? "destructive" : "warning"}>
+                          {batch.status}
+                        </Badge>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-ink-300" />
+                      </div>
                     </div>
                     <MobileListRow label="Lines">{batch.lines.length}</MobileListRow>
                     <MobileListRow label="Total cost">{formatCurrency(batch.totalCost)}</MobileListRow>
                     <MobileListRow label="Created">{new Date(batch.createdAt).toLocaleDateString()}</MobileListRow>
                     {batch.status === "open" && (
                       <div className="flex items-center justify-end gap-1 pt-1">
-                        <Button size="sm" variant="brand" onClick={() => receivePurchaseBatch(batch.id)}>
+                        <Button size="sm" variant="brand" onClick={(e) => { e.stopPropagation(); receivePurchaseBatch(batch.id); }}>
                           <PackageCheck className="h-3.5 w-3.5" /> Mark Received
                         </Button>
-                        <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => cancelPurchaseBatch(batch.id)}>
+                        <Button size="sm" variant="ghost" className="text-ink-500" onClick={(e) => { e.stopPropagation(); cancelPurchaseBatch(batch.id); }}>
                           <PackageX className="h-3.5 w-3.5" /> Cancel
                         </Button>
                       </div>
@@ -837,12 +900,17 @@ export default function Inventory() {
                       <TableHead>Status</TableHead>
                       <TableHead>Received</TableHead>
                       <TableHead />
+                      <TableHead />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {purchaseBatches.map((batch) => (
-                      <TableRow key={batch.id}>
-                        <TableCell className="font-medium text-ink-800">{batch.batchNumber}</TableCell>
+                      <TableRow
+                        key={batch.id}
+                        onClick={() => navigate(`/product/batches/${batch.id}`)}
+                        className="group cursor-pointer transition-colors hover:bg-brand-blue-50/60"
+                      >
+                        <TableCell className="font-medium text-ink-800 group-hover:text-brand-blue-700">{batch.batchNumber}</TableCell>
                         <TableCell className="text-sm text-ink-600">{batch.supplier}</TableCell>
                         <TableCell>{batch.lines.length}</TableCell>
                         <TableCell>{formatCurrency(batch.totalCost)}</TableCell>
@@ -855,14 +923,17 @@ export default function Inventory() {
                         <TableCell>
                           {batch.status === "open" && (
                             <div className="flex items-center justify-end gap-1">
-                              <Button size="sm" variant="brand" onClick={() => receivePurchaseBatch(batch.id)}>
+                              <Button size="sm" variant="brand" onClick={(e) => { e.stopPropagation(); receivePurchaseBatch(batch.id); }}>
                                 <PackageCheck className="h-3.5 w-3.5" /> Mark Received
                               </Button>
-                              <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => cancelPurchaseBatch(batch.id)}>
+                              <Button size="sm" variant="ghost" className="text-ink-500" onClick={(e) => { e.stopPropagation(); cancelPurchaseBatch(batch.id); }}>
                                 <PackageX className="h-3.5 w-3.5" /> Cancel
                               </Button>
                             </div>
                           )}
+                        </TableCell>
+                        <TableCell>
+                          <ChevronRight className="h-4 w-4 text-ink-300 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-blue-600" />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -916,6 +987,15 @@ export default function Inventory() {
                 <X className="h-3.5 w-3.5" /> Clear
               </Button>
             )}
+            <Button
+              variant="brand"
+              size="sm"
+              className="shrink-0"
+              disabled={selectedRequestIds.size === 0}
+              onClick={openConvertToBatch}
+            >
+              <PackageCheck className="h-3.5 w-3.5" /> Convert to Batch{selectedRequestIds.size > 0 ? ` (${selectedRequestIds.size})` : ""}
+            </Button>
           </div>
 
           {reorderRequests.length === 0 ? (
@@ -931,18 +1011,39 @@ export default function Inventory() {
               <MobileList>
                 {reorderPageItems.map((req) => {
                   const supplier = supplierFor(req.supplier);
+                  const batch = batchFor(req.batchId);
+                  const selectable = req.status === "ordered" && !req.batchId;
+                  const selectDisabled = Boolean(lockedSupplier) && lockedSupplier !== req.supplier;
                   return (
                     <MobileListCard key={req.id}>
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-medium text-ink-800">{req.itemName}</p>
-                          <p className="font-mono-data text-xs text-ink-400">{req.sku}</p>
+                        <div className="flex items-start gap-2">
+                          {selectable && (
+                            <input
+                              type="checkbox"
+                              className="mt-1 h-3.5 w-3.5 shrink-0 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400 disabled:opacity-30"
+                              checked={selectedRequestIds.has(req.id)}
+                              disabled={selectDisabled}
+                              onChange={() => toggleRequestSelected(req)}
+                            />
+                          )}
+                          <div>
+                            <p className="font-medium text-ink-800">{req.itemName}</p>
+                            <p className="font-mono-data text-xs text-ink-400">{req.sku}</p>
+                          </div>
                         </div>
                         <ReorderRequestStatusBadge status={req.status} />
                       </div>
                       <MobileListRow label="Quantity">{req.quantityRequested}</MobileListRow>
                       <MobileListRow label="Supplier">{req.supplier || "—"}</MobileListRow>
                       <MobileListRow label="Requested">{new Date(req.requestedAt).toLocaleDateString()}</MobileListRow>
+                      {batch && (
+                        <MobileListRow label="Batch">
+                          <Link to={`/product/batches/${batch.id}`} className="text-brand-blue-600 hover:underline">
+                            {batch.batchNumber}
+                          </Link>
+                        </MobileListRow>
+                      )}
                       {req.status === "delivered" && (
                         <MobileListRow label="Delivery Proof">
                           {req.deliveryProof ? (
@@ -981,12 +1082,7 @@ export default function Inventory() {
                             <Truck className="h-3.5 w-3.5" /> Mark Ordered
                           </Button>
                         )}
-                        {req.status === "ordered" && (
-                          <Button size="sm" variant="brand" onClick={() => openDeliverDialog(req)}>
-                            <PackageCheck className="h-3.5 w-3.5" /> Mark Delivered
-                          </Button>
-                        )}
-                        {(req.status === "requested" || req.status === "ordered") && (
+                        {(req.status === "requested" || (req.status === "ordered" && !req.batchId)) && (
                           <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => openCancelDialog(req)}>
                             <Ban className="h-3.5 w-3.5" /> Cancel
                           </Button>
@@ -1000,11 +1096,13 @@ export default function Inventory() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead />
                       <TableHead>Item</TableHead>
                       <TableHead>Supplier</TableHead>
                       <TableHead>Qty</TableHead>
                       <TableHead>Requested</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Batch</TableHead>
                       <TableHead>Delivery Proof</TableHead>
                       <TableHead />
                     </TableRow>
@@ -1012,8 +1110,22 @@ export default function Inventory() {
                   <TableBody>
                     {reorderPageItems.map((req) => {
                       const supplier = supplierFor(req.supplier);
+                      const batch = batchFor(req.batchId);
+                      const selectable = req.status === "ordered" && !req.batchId;
+                      const selectDisabled = Boolean(lockedSupplier) && lockedSupplier !== req.supplier;
                       return (
                         <TableRow key={req.id}>
+                          <TableCell>
+                            {selectable && (
+                              <input
+                                type="checkbox"
+                                className="h-3.5 w-3.5 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400 disabled:opacity-30"
+                                checked={selectedRequestIds.has(req.id)}
+                                disabled={selectDisabled}
+                                onChange={() => toggleRequestSelected(req)}
+                              />
+                            )}
+                          </TableCell>
                           <TableCell>
                             <p className="font-medium text-ink-800">{req.itemName}</p>
                             <p className="font-mono-data text-xs text-ink-400">{req.sku}</p>
@@ -1022,6 +1134,15 @@ export default function Inventory() {
                           <TableCell>{req.quantityRequested}</TableCell>
                           <TableCell className="text-sm text-ink-600">{new Date(req.requestedAt).toLocaleDateString()}</TableCell>
                           <TableCell><ReorderRequestStatusBadge status={req.status} /></TableCell>
+                          <TableCell>
+                            {batch ? (
+                              <Link to={`/product/batches/${batch.id}`} className="text-sm text-brand-blue-600 hover:underline">
+                                {batch.batchNumber}
+                              </Link>
+                            ) : (
+                              <span className="text-xs text-ink-300">—</span>
+                            )}
+                          </TableCell>
                           <TableCell>
                             {req.status !== "delivered" ? (
                               <span className="text-xs text-ink-300">—</span>
@@ -1068,12 +1189,7 @@ export default function Inventory() {
                                   <Truck className="h-3.5 w-3.5" /> Mark Ordered
                                 </Button>
                               )}
-                              {req.status === "ordered" && (
-                                <Button size="sm" variant="brand" onClick={() => openDeliverDialog(req)}>
-                                  <PackageCheck className="h-3.5 w-3.5" /> Mark Delivered
-                                </Button>
-                              )}
-                              {(req.status === "requested" || req.status === "ordered") && (
+                              {(req.status === "requested" || (req.status === "ordered" && !req.batchId)) && (
                                 <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => openCancelDialog(req)}>
                                   <Ban className="h-3.5 w-3.5" /> Cancel
                                 </Button>
@@ -1211,48 +1327,61 @@ export default function Inventory() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={deliverTarget !== null} onOpenChange={(o) => !o && setDeliverTarget(null)}>
-        <DialogContent>
+      <Dialog open={convertOpen} onOpenChange={setConvertOpen}>
+        <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Mark as delivered</DialogTitle>
+            <DialogTitle>Convert to batch</DialogTitle>
             <DialogDescription>
-              {deliverTarget && `${deliverTarget.itemName} (qty ${deliverTarget.quantityRequested}) will be marked delivered and added back to stock.`}
+              {lockedSupplier
+                ? `Bundles these requests into a new open purchase batch from ${lockedSupplier}. Adjust cost or serials before saving — receiving the batch will mark these requests delivered.`
+                : "Select one or more \"Ordered\" requests from the same supplier first."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3">
             <div className="space-y-1.5">
-              <Label>Proof of delivery (optional)</Label>
-              {deliveryProofDraft ? (
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-ink-100 bg-ink-50 p-3">
-                  <div className="flex min-w-0 items-center gap-2">
-                    {isImageProof(deliveryProofDraft.type) ? (
-                      <img src={deliveryProofDraft.url} alt={deliveryProofDraft.name} className="h-12 w-12 shrink-0 rounded object-cover" />
-                    ) : (
-                      <FileText className="h-8 w-8 shrink-0 text-ink-400" />
+              <Label>Supplier</Label>
+              <div className="flex h-9 items-center rounded-md border border-ink-100 bg-ink-50 px-3 text-sm text-ink-500">
+                {lockedSupplier || "—"}
+              </div>
+            </div>
+            <div className="space-y-3">
+              {convertLines.map((line) => {
+                const item = inventory.find((i) => i.id === line.inventoryItemId);
+                const tracksSerials = item && inventoryCategories.find((c) => c.name === item.category)?.tracksSerials;
+                return (
+                  <div key={line.key} className="space-y-2 rounded-lg border border-ink-100 p-3">
+                    <p className="text-sm font-medium text-ink-800">{line.itemName}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Quantity</Label>
+                        <Input type="number" min={1} value={line.quantity} onChange={(e) => updateConvertLine(line.key, { quantity: Number(e.target.value) || 1 })} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Unit cost (₱)</Label>
+                        <Input type="number" min={0} value={line.unitCost} onChange={(e) => updateConvertLine(line.key, { unitCost: Number(e.target.value) || 0 })} />
+                      </div>
+                    </div>
+                    {tracksSerials && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Indoor serials (comma-separated, optional)</Label>
+                          <Input value={line.serialsIndoorInput} onChange={(e) => updateConvertLine(line.key, { serialsIndoorInput: e.target.value })} placeholder="GMI-IN-90001, GMI-IN-90002" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Outdoor serials (same order, optional)</Label>
+                          <Input value={line.serialsOutdoorInput} onChange={(e) => updateConvertLine(line.key, { serialsOutdoorInput: e.target.value })} placeholder="GMI-OUT-90001, GMI-OUT-90002" />
+                        </div>
+                      </div>
                     )}
-                    <span className="truncate text-sm text-ink-700">{deliveryProofDraft.name}</span>
                   </div>
-                  <Button size="sm" variant="ghost" className="text-ink-500" onClick={clearDeliveryProofDraft}>
-                    <X className="h-3.5 w-3.5" /> Remove
-                  </Button>
-                </div>
-              ) : (
-                <FileDropZone
-                  accept="image/*,.pdf"
-                  onFilesSelected={handleDeliveryProofSelect}
-                  label="Drag & drop a receipt or photo, or click to browse"
-                  hint="No photo/invoice uploaded — you can still confirm delivery without one."
-                />
-              )}
-              {deliveryProofDraft && (
-                <p className="text-xs text-ink-400">This will be attached to the request as delivery proof.</p>
-              )}
+                );
+              })}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeliverTarget(null)}>Cancel</Button>
-            <Button variant="brand" onClick={confirmMarkDelivered}>
-              <PackageCheck className="h-3.5 w-3.5" /> Confirm Delivery
+            <Button variant="outline" onClick={() => setConvertOpen(false)}>Cancel</Button>
+            <Button variant="brand" disabled={!lockedSupplier || convertLines.length === 0} onClick={handleConvertToBatch}>
+              <PackageCheck className="h-3.5 w-3.5" /> Save Batch
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1266,59 +1395,82 @@ export default function Inventory() {
           </DialogHeader>
           <div className="space-y-2">
             {inventoryCategories.map((cat) => (
-              <div key={cat.id} className="flex items-center gap-2 rounded-lg border border-ink-100 p-2">
-                {categoryEditId === cat.id ? (
-                  <Input
-                    autoFocus
-                    value={categoryEditName}
-                    onChange={(e) => setCategoryEditName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && saveCategoryRename(cat.id)}
-                    className="flex-1"
+              <div key={cat.id} className="space-y-1.5 rounded-lg border border-ink-100 p-2">
+                <div className="flex items-center gap-2">
+                  {categoryEditId === cat.id ? (
+                    <Input
+                      autoFocus
+                      value={categoryEditName}
+                      onChange={(e) => setCategoryEditName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && saveCategoryRename(cat.id)}
+                      className="flex-1"
+                    />
+                  ) : (
+                    <span className="flex-1 text-sm text-ink-700">
+                      {cat.name}
+                      {cat.status === "archived" && <span className="ml-1.5 text-xs text-ink-400">(archived)</span>}
+                    </span>
+                  )}
+                  {categoryEditId === cat.id ? (
+                    <Button size="sm" variant="outline" onClick={() => saveCategoryRename(cat.id)}>Save</Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setCategoryEditId(cat.id);
+                        setCategoryEditName(cat.name);
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                  {cat.status === "archived" ? (
+                    <Button size="sm" variant="ghost" className="text-brand-green-600" onClick={() => restoreInventoryCategory(cat.id)}>
+                      <ArchiveRestore className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => archiveInventoryCategory(cat.id)}>
+                      <Archive className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+                <label className="flex cursor-pointer items-center gap-1.5 pl-0.5 text-xs text-ink-500">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400"
+                    checked={Boolean(cat.tracksSerials)}
+                    onChange={() => updateInventoryCategory(cat.id, { tracksSerials: !cat.tracksSerials })}
                   />
-                ) : (
-                  <span className="flex-1 text-sm text-ink-700">
-                    {cat.name}
-                    {cat.status === "archived" && <span className="ml-1.5 text-xs text-ink-400">(archived)</span>}
-                  </span>
-                )}
-                {categoryEditId === cat.id ? (
-                  <Button size="sm" variant="outline" onClick={() => saveCategoryRename(cat.id)}>Save</Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setCategoryEditId(cat.id);
-                      setCategoryEditName(cat.name);
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-                {cat.status === "archived" ? (
-                  <Button size="sm" variant="ghost" className="text-brand-green-600" onClick={() => restoreInventoryCategory(cat.id)}>
-                    <ArchiveRestore className="h-3.5 w-3.5" />
-                  </Button>
-                ) : (
-                  <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => archiveInventoryCategory(cat.id)}>
-                    <Archive className="h-3.5 w-3.5" />
-                  </Button>
-                )}
+                  Tracks serial numbers
+                </label>
               </div>
             ))}
           </div>
-          <div className="flex items-center gap-2 pt-2">
-            <Input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="New category name" />
-            <Button
-              variant="outline"
-              disabled={!newCategoryName.trim()}
-              onClick={() => {
-                addInventoryCategory({ name: newCategoryName.trim() });
-                setNewCategoryName("");
-              }}
-            >
-              <Plus className="h-3.5 w-3.5" /> Add
-            </Button>
+          <div className="space-y-1.5 pt-2">
+            <div className="flex items-center gap-2">
+              <Input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="New category name" />
+              <Button
+                variant="outline"
+                disabled={!newCategoryName.trim()}
+                onClick={() => {
+                  addInventoryCategory({ name: newCategoryName.trim(), tracksSerials: newCategoryTracksSerials });
+                  setNewCategoryName("");
+                  setNewCategoryTracksSerials(false);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" /> Add
+              </Button>
+            </div>
+            <label className="flex cursor-pointer items-center gap-1.5 pl-0.5 text-xs text-ink-500">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400"
+                checked={newCategoryTracksSerials}
+                onChange={(e) => setNewCategoryTracksSerials(e.target.checked)}
+              />
+              Tracks serial numbers
+            </label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCategoryManagerOpen(false)}>Close</Button>
@@ -1389,9 +1541,15 @@ export default function Inventory() {
                         </div>
                       </div>
                       {tracksSerials && (
-                        <div className="space-y-1">
-                          <Label className="text-xs">Serial numbers (comma-separated, optional)</Label>
-                          <Input value={line.serialsInput} onChange={(e) => updateBatchLine(line.key, { serialsInput: e.target.value })} placeholder="GMI-IN-90001, GMI-IN-90002" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Indoor serials (comma-separated, optional)</Label>
+                            <Input value={line.serialsIndoorInput} onChange={(e) => updateBatchLine(line.key, { serialsIndoorInput: e.target.value })} placeholder="GMI-IN-90001, GMI-IN-90002" />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Outdoor serials (same order, optional)</Label>
+                            <Input value={line.serialsOutdoorInput} onChange={(e) => updateBatchLine(line.key, { serialsOutdoorInput: e.target.value })} placeholder="GMI-OUT-90001, GMI-OUT-90002" />
+                          </div>
                         </div>
                       )}
                     </div>
