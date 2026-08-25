@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { FilterButton } from "@/components/shared/filter-button";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +32,7 @@ import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/m
 import { ClientStatusBadge, ProjectStatusBadge } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
+import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
 import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { usePagination } from "@/lib/use-pagination";
@@ -191,13 +193,12 @@ export default function ClientsList() {
   }, [clients, query, status, projectStatus, searchFields, sortBy, sortDir]);
 
   const { page, setPage, pageSize, setPageSize, pageItems, total } = usePagination(filtered, 10);
-  const hasActiveFilters =
-    query.trim() !== "" ||
-    status !== "all" ||
-    projectStatus !== "all" ||
-    sortBy !== "createdAt" ||
-    sortDir !== "desc" ||
-    searchFields.size !== 4;
+  const activeFilterCount =
+    (status !== "all" ? 1 : 0) +
+    (projectStatus !== "all" ? 1 : 0) +
+    (sortBy !== "createdAt" || sortDir !== "desc" ? 1 : 0) +
+    (searchFields.size !== 4 ? 1 : 0);
+  const hasActiveFilters = query.trim() !== "" || activeFilterCount > 0;
 
   function clearFilters() {
     setQuery("");
@@ -525,69 +526,85 @@ export default function ClientsList() {
                 className="pl-9"
               />
             </div>
-            <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
-              <SelectTrigger className="w-full sm:w-44">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                {statusFilters.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={projectStatus} onValueChange={(v) => setProjectStatus(v as typeof projectStatus)}>
-              <SelectTrigger className="w-full sm:w-52">
-                <SelectValue placeholder="Project status" />
-              </SelectTrigger>
-              <SelectContent>
-                {projectStatusFilters.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s === "all" ? "All project statuses" : s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="shrink-0">
-                  <ListFilter className="h-3.5 w-3.5" /> Search columns ({searchFields.size})
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuLabel>Search in</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {searchFieldOptions.map((opt) => (
-                  <DropdownMenuCheckboxItem
-                    key={opt.key}
-                    checked={searchFields.has(opt.key)}
-                    onCheckedChange={() => toggleSearchField(opt.key)}
+            <FilterButton activeCount={activeFilterCount} onClear={clearFilters}>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Status</Label>
+                <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusFilters.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Project status</Label>
+                <Select value={projectStatus} onValueChange={(v) => setProjectStatus(v as typeof projectStatus)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Project status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {projectStatusFilters.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s === "all" ? "All project statuses" : s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Sort by</Label>
+                <div className="flex gap-2">
+                  <Select value={sortBy} onValueChange={(v) => setSortBy(v as ClientSortBy)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Sort by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sortOptions.map((opt) => (
+                        <SelectItem key={opt.key} value={opt.key}>{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={() => setSortDir((v) => (v === "asc" ? "desc" : "asc"))}
+                    title="Toggle sort direction"
                   >
-                    {opt.label}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Select value={sortBy} onValueChange={(v) => setSortBy(v as ClientSortBy)}>
-              <SelectTrigger className="w-full sm:w-44">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                {sortOptions.map((opt) => (
-                  <SelectItem key={opt.key} value={opt.key}>{opt.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={() => setSortDir((v) => (v === "asc" ? "desc" : "asc"))}
-              title="Toggle sort direction"
-            >
-              <ArrowUpDown className="h-3.5 w-3.5" /> {sortDir === "asc" ? "Ascending" : "Descending"}
-            </Button>
+                    <ArrowUpDown className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Search in</Label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="w-full justify-start">
+                      <ListFilter className="h-3.5 w-3.5" /> Search columns ({searchFields.size})
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuLabel>Search in</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {searchFieldOptions.map((opt) => (
+                      <DropdownMenuCheckboxItem
+                        key={opt.key}
+                        checked={searchFields.has(opt.key)}
+                        onCheckedChange={() => toggleSearchField(opt.key)}
+                      >
+                        {opt.label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </FilterButton>
             {hasActiveFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="text-ink-500">
                 <X className="h-3.5 w-3.5" /> Clear
@@ -601,7 +618,7 @@ export default function ClientsList() {
                 <EmptyState icon={Users} title="No clients found" description="Try a different search term or filter." />
               </div>
             ) : (
-              <>
+              <FilterTransition filterKey={`${query}-${status}-${projectStatus}-${sortBy}-${sortDir}-${searchFields.size}-${page}`}>
               <MobileList>
                 {pageItems.map((client) => (
                   <MobileListCard key={client.id} onClick={() => navigate(`/clients/${client.id}`)}>
@@ -713,7 +730,7 @@ export default function ClientsList() {
               </Table>
               </div>
               <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
-              </>
+              </FilterTransition>
             )}
           </Card>
         </TabsContent>

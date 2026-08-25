@@ -113,6 +113,28 @@ button:disabled,
   border-radius: 999px;
 }
 
+/* Prominent horizontal scrollbar for the leads kanban board — always visible
+   (not the site-wide thin/hover style) so it reads as an obvious "scroll me" affordance. */
+.kanban-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: var(--color-brand-blue-400) var(--color-ink-100);
+}
+.kanban-scroll::-webkit-scrollbar {
+  height: 14px;
+}
+.kanban-scroll::-webkit-scrollbar-track {
+  background: var(--color-ink-100);
+  border-radius: 999px;
+}
+.kanban-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-brand-blue-400);
+  border-radius: 999px;
+  border: 3px solid var(--color-ink-100);
+}
+.kanban-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-blue-500);
+}
+
 .brand-gradient {
   background: linear-gradient(
     100deg,

@@ -31,6 +31,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { FilterButton } from "@/components/shared/filter-button";
 import {
   Table,
   TableHeader,
@@ -89,7 +90,12 @@ const jobStatusLabels: Record<JobStatus, string> = {
   cancelled: "Cancelled",
 };
 
-type PendingAction = "in_progress" | "scheduled" | "completed" | "installed";
+type PendingAction =
+  | "in_progress"
+  | "scheduled"
+  | "completed"
+  | "installed"
+  | "cancelled";
 
 const confirmCopy: Record<
   PendingAction,
@@ -128,6 +134,13 @@ const confirmCopy: Record<
     confirmLabel: "Mark Installed",
     variant: "brand",
   },
+  cancelled: {
+    title: "Cancel this job?",
+    description:
+      "This cancels the job and notifies the office. Please provide a reason before continuing.",
+    confirmLabel: "Cancel Job",
+    variant: "destructive",
+  },
 };
 
 export default function MyJobs() {
@@ -140,6 +153,7 @@ export default function MyJobs() {
   );
   const [installOutcome, setInstallOutcome] =
     useState<InstallationOutcome | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
   const [surveyOpen, setSurveyOpen] = useState(false);
   const [surveyForm, setSurveyForm] = useState({
     findings: "",
@@ -265,6 +279,13 @@ export default function MyJobs() {
     historyQuery.trim() !== "" ||
     historyTypeFilter !== "all" ||
     historyStatusFilter !== "all";
+  const activeFilterCount =
+    (activeTypeFilter !== "all" ? 1 : 0) +
+    (activeStatusFilter !== "all" ? 1 : 0) +
+    (activeSortOrder !== "asc" ? 1 : 0);
+  const historyFilterCount =
+    (historyTypeFilter !== "all" ? 1 : 0) +
+    (historyStatusFilter !== "all" ? 1 : 0);
 
   function clearActiveFilters() {
     setActiveQuery("");
@@ -284,18 +305,25 @@ export default function MyJobs() {
     : undefined;
 
   function requestStatusChange(action: PendingAction) {
+    setCancelReason("");
     setPendingAction(action);
   }
 
   function confirmStatusChange() {
     if (!activeJob || !pendingAction) return;
-    const outcome = updateJobStatus(activeJob.id, pendingAction as JobStatus);
+    if (pendingAction === "cancelled" && !cancelReason.trim()) return;
+    const outcome = updateJobStatus(
+      activeJob.id,
+      pendingAction as JobStatus,
+      pendingAction === "cancelled" ? cancelReason.trim() : undefined,
+    );
     if (pendingAction === "in_progress" || pendingAction === "scheduled") {
       setActiveJob({ ...activeJob, status: pendingAction });
     } else {
       setActiveJob(null);
     }
     setPendingAction(null);
+    setCancelReason("");
     if (pendingAction === "installed" && outcome) {
       setInstallOutcome(outcome);
     }
@@ -541,65 +569,76 @@ export default function MyJobs() {
                       className="pl-9"
                     />
                   </div>
-                  <Select
-                    value={activeTypeFilter}
-                    onValueChange={(v) =>
-                      setActiveTypeFilter(v as typeof activeTypeFilter)
-                    }
-                  >
-                    <SelectTrigger className="w-full sm:w-44">
-                      <SelectValue placeholder="Job type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {jobTypes.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t === "all" ? "All job types" : t}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={activeStatusFilter}
-                    onValueChange={(v) =>
-                      setActiveStatusFilter(v as typeof activeStatusFilter)
-                    }
-                  >
-                    <SelectTrigger className="w-full sm:w-40">
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {activeStatuses.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s === "all" ? "All statuses" : jobStatusLabels[s]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={activeSortOrder}
-                    onValueChange={(v) =>
-                      setActiveSortOrder(v as typeof activeSortOrder)
-                    }
-                  >
-                    {/* Direction arrow lives in the trigger, not in the items: Radix clones item
-                        children into the trigger, so an icon there overflows the fixed width. */}
-                    <SelectTrigger className="w-full sm:w-48">
-                      <span className="flex min-w-0 items-center gap-1.5">
-                        {activeSortOrder === "asc" ? (
-                          <ArrowUpNarrowWide className="h-3.5 w-3.5 shrink-0 text-ink-400" />
-                        ) : (
-                          <ArrowDownWideNarrow className="h-3.5 w-3.5 shrink-0 text-ink-400" />
-                        )}
-                        <span className="truncate">
-                          <SelectValue placeholder="Sort by date & time" />
-                        </span>
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="asc">Earliest first</SelectItem>
-                      <SelectItem value="desc">Latest first</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <FilterButton activeCount={activeFilterCount} onClear={clearActiveFilters}>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Job type</Label>
+                      <Select
+                        value={activeTypeFilter}
+                        onValueChange={(v) =>
+                          setActiveTypeFilter(v as typeof activeTypeFilter)
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Job type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {jobTypes.map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {t === "all" ? "All job types" : t}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Status</Label>
+                      <Select
+                        value={activeStatusFilter}
+                        onValueChange={(v) =>
+                          setActiveStatusFilter(v as typeof activeStatusFilter)
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activeStatuses.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s === "all" ? "All statuses" : jobStatusLabels[s]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Sort by date &amp; time</Label>
+                      <Select
+                        value={activeSortOrder}
+                        onValueChange={(v) =>
+                          setActiveSortOrder(v as typeof activeSortOrder)
+                        }
+                      >
+                        {/* Direction arrow lives in the trigger, not in the items: Radix clones item
+                            children into the trigger, so an icon there overflows the fixed width. */}
+                        <SelectTrigger className="w-full">
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            {activeSortOrder === "asc" ? (
+                              <ArrowUpNarrowWide className="h-3.5 w-3.5 shrink-0 text-ink-400" />
+                            ) : (
+                              <ArrowDownWideNarrow className="h-3.5 w-3.5 shrink-0 text-ink-400" />
+                            )}
+                            <span className="truncate">
+                              <SelectValue placeholder="Sort by date & time" />
+                            </span>
+                          </span>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="asc">Earliest first</SelectItem>
+                          <SelectItem value="desc">Latest first</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </FilterButton>
                   {hasActiveJobsFilters && (
                     <Button
                       variant="ghost"
@@ -706,40 +745,48 @@ export default function MyJobs() {
                       className="pl-9"
                     />
                   </div>
-                  <Select
-                    value={historyTypeFilter}
-                    onValueChange={(v) =>
-                      setHistoryTypeFilter(v as typeof historyTypeFilter)
-                    }
-                  >
-                    <SelectTrigger className="w-full sm:w-44">
-                      <SelectValue placeholder="Job type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {jobTypes.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t === "all" ? "All job types" : t}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={historyStatusFilter}
-                    onValueChange={(v) =>
-                      setHistoryStatusFilter(v as typeof historyStatusFilter)
-                    }
-                  >
-                    <SelectTrigger className="w-full sm:w-40">
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {historyStatuses.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s === "all" ? "All statuses" : jobStatusLabels[s]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FilterButton activeCount={historyFilterCount} onClear={clearHistoryFilters}>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Job type</Label>
+                      <Select
+                        value={historyTypeFilter}
+                        onValueChange={(v) =>
+                          setHistoryTypeFilter(v as typeof historyTypeFilter)
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Job type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {jobTypes.map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {t === "all" ? "All job types" : t}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Status</Label>
+                      <Select
+                        value={historyStatusFilter}
+                        onValueChange={(v) =>
+                          setHistoryStatusFilter(v as typeof historyStatusFilter)
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {historyStatuses.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s === "all" ? "All statuses" : jobStatusLabels[s]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </FilterButton>
                   {hasHistoryFilters && (
                     <Button
                       variant="ghost"
@@ -890,6 +937,17 @@ export default function MyJobs() {
                   />
                 </div>
 
+                {activeJob.status === "cancelled" && activeJob.cancellationReason && (
+                  <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-red-700">
+                      Cancellation Reason
+                    </p>
+                    <p className="mt-1 text-ink-700">
+                      {activeJob.cancellationReason}
+                    </p>
+                  </div>
+                )}
+
                 <RestrictedField label="Client contact & pricing" />
               </div>
 
@@ -935,6 +993,16 @@ export default function MyJobs() {
                       Mark as Completed
                     </Button>
                   ))}
+                {(activeJob.status === "scheduled" ||
+                  activeJob.status === "in_progress") && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => requestStatusChange("cancelled")}
+                  >
+                    <X className="h-3.5 w-3.5" /> Cancel Job
+                  </Button>
+                )}
               </DialogFooter>
             </>
           )}
@@ -964,6 +1032,16 @@ export default function MyJobs() {
                   </p>
                 </div>
               )}
+              {pendingAction === "cancelled" && (
+                <div className="space-y-1.5">
+                  <Label>Reason for cancellation</Label>
+                  <Textarea
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="e.g. Client requested reschedule, no access to unit..."
+                  />
+                </div>
+              )}
               <DialogFooter>
                 <Button
                   variant="outline"
@@ -974,6 +1052,9 @@ export default function MyJobs() {
                 <Button
                   variant={confirmCopy[pendingAction].variant}
                   onClick={confirmStatusChange}
+                  disabled={
+                    pendingAction === "cancelled" && !cancelReason.trim()
+                  }
                 >
                   {confirmCopy[pendingAction].confirmLabel}
                 </Button>

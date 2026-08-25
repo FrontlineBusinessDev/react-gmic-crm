@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { FilterButton } from "@/components/shared/filter-button";
+import { FilterTransition } from "@/components/shared/filter-transition";
 import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/mobile-list";
 import { ServiceCatalogStatusBadge } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
@@ -86,7 +88,8 @@ export default function ServiceCatalog() {
   }, [serviceCatalog, query, statusFilter]);
 
   const { page, setPage, pageSize, setPageSize, pageItems, total } = usePagination(filtered, 10);
-  const hasActiveFilters = query.trim() !== "" || statusFilter !== "all";
+  const activeFilterCount = statusFilter !== "all" ? 1 : 0;
+  const hasActiveFilters = query.trim() !== "" || activeFilterCount > 0;
 
   function openAdd() {
     setEditTarget(null);
@@ -201,18 +204,23 @@ export default function ServiceCatalog() {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
               <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search services..." className="pl-9" />
             </div>
-            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                {statusFilters.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <FilterButton activeCount={activeFilterCount} onClear={clearFilters}>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Status</Label>
+                <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusFilters.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </FilterButton>
             {hasActiveFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="text-ink-500">
                 <X className="h-3.5 w-3.5" /> Clear
@@ -224,6 +232,7 @@ export default function ServiceCatalog() {
             <EmptyState icon={Wrench} title="No services found" description="Try a different search term, or add a new service to the catalog." />
           ) : (
             <Card>
+              <FilterTransition filterKey={`${query}-${statusFilter}-${page}`}>
               <MobileList>
                 {pageItems.map((item) => {
                   const status = item.status ?? "active";
@@ -296,6 +305,7 @@ export default function ServiceCatalog() {
               </Table>
               </div>
               <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
+              </FilterTransition>
             </Card>
           )}
         </TabsContent>

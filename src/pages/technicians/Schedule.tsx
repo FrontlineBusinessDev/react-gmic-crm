@@ -43,6 +43,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { FilterButton } from "@/components/shared/filter-button";
 import {
   Dialog,
   DialogContent,
@@ -232,6 +233,10 @@ export default function Schedule() {
     typeFilter !== "all" ||
     statusFilter !== "all" ||
     dateScope !== "all";
+  const activeFilterCount =
+    (technicianFilter !== "all" ? 1 : 0) +
+    (typeFilter !== "all" ? 1 : 0) +
+    (statusFilter !== "all" ? 1 : 0);
   function clearFilters() {
     setTechnicianFilter("all");
     setTypeFilter("all");
@@ -624,52 +629,63 @@ export default function Schedule() {
           {/* Filters — kept in a fixed toolbar row so their position never shifts as data grows (Fitts's law) */}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Select
-                value={technicianFilter}
-                onValueChange={setTechnicianFilter}
-              >
-                <SelectTrigger className="w-full sm:w-48">
-                  <SelectValue placeholder="Technician" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All technicians</SelectItem>
-                  {technicians.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={typeFilter}
-                onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}
-              >
-                <SelectTrigger className="w-full sm:w-44">
-                  <SelectValue placeholder="Job type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {jobTypes.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t === "all" ? "All job types" : t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={statusFilter}
-                onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
-              >
-                <SelectTrigger className="w-full sm:w-40">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {jobStatuses.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s === "all" ? "All statuses" : jobStatusLabels[s]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <FilterButton activeCount={activeFilterCount} onClear={clearFilters}>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Technician</Label>
+                  <Select
+                    value={technicianFilter}
+                    onValueChange={setTechnicianFilter}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Technician" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All technicians</SelectItem>
+                      {technicians.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Job type</Label>
+                  <Select
+                    value={typeFilter}
+                    onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Job type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {jobTypes.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {t === "all" ? "All job types" : t}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Status</Label>
+                  <Select
+                    value={statusFilter}
+                    onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {jobStatuses.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s === "all" ? "All statuses" : jobStatusLabels[s]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </FilterButton>
               {hasActiveFilters && (
                 <Button
                   variant="ghost"

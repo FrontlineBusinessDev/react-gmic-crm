@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { Plus, AlertTriangle, Boxes, Search, X, Pencil, Archive, ArchiveRestore, PackagePlus, Mail, PhoneCall, Truck, Ban, PackageCheck, Download, Printer, FileText, Eye, ArrowUpDown, Settings2, PackageOpen, PackageX, Wrench, FileUp, ChevronRight } from "lucide-react";
+import { FilterButton } from "@/components/shared/filter-button";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/m
 import { InventoryStatusBadge, ReorderRequestStatusBadge } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
+import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
 import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { usePagination } from "@/lib/use-pagination";
@@ -262,8 +264,11 @@ export default function Inventory() {
     pageItems: reorderPageItems,
     total: reorderTotal,
   } = usePagination(filteredReorderRequests, 10);
-  const hasActiveReorderFilters =
-    reorderQuery.trim() !== "" || reorderStatusFilter !== "all" || reorderSupplierFilter !== "all" || reorderDateSort !== "desc";
+  const activeReorderFilterCount =
+    (reorderStatusFilter !== "all" ? 1 : 0) +
+    (reorderSupplierFilter !== "all" ? 1 : 0) +
+    (reorderDateSort !== "desc" ? 1 : 0);
+  const hasActiveReorderFilters = reorderQuery.trim() !== "" || activeReorderFilterCount > 0;
 
   function clearReorderFilters() {
     setReorderQuery("");
@@ -387,7 +392,9 @@ export default function Inventory() {
   }, [inventory, categoryFilter, query, lowStockOnly, statusFilter]);
 
   const { page, setPage, pageSize, setPageSize, pageItems, total } = usePagination(filtered, 10);
-  const hasActiveFilters = query.trim() !== "" || lowStockOnly || statusFilter !== "all" || categoryFilter !== "all";
+  const activeFilterCount =
+    (categoryFilter !== "all" ? 1 : 0) + (statusFilter !== "all" ? 1 : 0) + (lowStockOnly ? 1 : 0);
+  const hasActiveFilters = query.trim() !== "" || activeFilterCount > 0;
 
   function clearFilters() {
     setQuery("");
@@ -690,37 +697,48 @@ export default function Inventory() {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
               <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search item, SKU, supplier..." className="pl-9" />
             </div>
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All categories</SelectItem>
-                {activeCategories.map((c) => (
-                  <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-              <SelectTrigger className="w-full sm:w-36">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                {statusFilters.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant={lowStockOnly ? "brand" : "outline"}
-              size="sm"
-              onClick={() => setLowStockOnly((v) => !v)}
-              className="shrink-0"
-            >
-              <AlertTriangle className="h-3.5 w-3.5" /> Low stock only
-            </Button>
+            <FilterButton activeCount={activeFilterCount} onClear={clearFilters}>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Category</Label>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All categories</SelectItem>
+                    {activeCategories.map((c) => (
+                      <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Status</Label>
+                <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusFilters.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Stock</Label>
+                <Button
+                  variant={lowStockOnly ? "brand" : "outline"}
+                  size="sm"
+                  onClick={() => setLowStockOnly((v) => !v)}
+                  className="w-full"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5" /> Low stock only
+                </Button>
+              </div>
+            </FilterButton>
             {hasActiveFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="text-ink-500">
                 <X className="h-3.5 w-3.5" /> Clear
@@ -732,6 +750,7 @@ export default function Inventory() {
                 <EmptyState icon={Boxes} title="No items match your filters" description="Try a different search term or clear filters." />
               ) : (
                 <Card>
+                  <FilterTransition filterKey={`${query}-${categoryFilter}-${statusFilter}-${lowStockOnly}-${page}`}>
                   <MobileList>
                     {pageItems.map((item) => {
                       const low = item.quantityOnHand <= item.reorderLevel;
@@ -840,6 +859,7 @@ export default function Inventory() {
                   </Table>
                   </div>
               <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
+                  </FilterTransition>
             </Card>
           )}
         </TabsContent>
@@ -950,38 +970,49 @@ export default function Inventory() {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
               <Input value={reorderQuery} onChange={(e) => setReorderQuery(e.target.value)} placeholder="Search item, SKU, supplier..." className="pl-9" />
             </div>
-            <Select value={reorderStatusFilter} onValueChange={(v) => setReorderStatusFilter(v as typeof reorderStatusFilter)}>
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                {reorderStatusFilters.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={reorderSupplierFilter} onValueChange={setReorderSupplierFilter}>
-              <SelectTrigger className="w-full sm:w-48">
-                <SelectValue placeholder="Supplier" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All suppliers</SelectItem>
-                {reorderSupplierOptions.map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={() => setReorderDateSort((v) => (v === "asc" ? "desc" : "asc"))}
-              title="Toggle date requested sort order"
-            >
-              <ArrowUpDown className="h-3.5 w-3.5" /> Date Requested: {reorderDateSort === "asc" ? "Oldest first" : "Newest first"}
-            </Button>
+            <FilterButton activeCount={activeReorderFilterCount} onClear={clearReorderFilters}>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Status</Label>
+                <Select value={reorderStatusFilter} onValueChange={(v) => setReorderStatusFilter(v as typeof reorderStatusFilter)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {reorderStatusFilters.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Supplier</Label>
+                <Select value={reorderSupplierFilter} onValueChange={setReorderSupplierFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Supplier" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All suppliers</SelectItem>
+                    {reorderSupplierOptions.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Date requested</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setReorderDateSort((v) => (v === "asc" ? "desc" : "asc"))}
+                  title="Toggle date requested sort order"
+                >
+                  <ArrowUpDown className="h-3.5 w-3.5" /> {reorderDateSort === "asc" ? "Oldest first" : "Newest first"}
+                </Button>
+              </div>
+            </FilterButton>
             {hasActiveReorderFilters && (
               <Button variant="ghost" size="sm" onClick={clearReorderFilters} className="text-ink-500">
                 <X className="h-3.5 w-3.5" /> Clear
@@ -1008,6 +1039,7 @@ export default function Inventory() {
             <EmptyState icon={PackagePlus} title="No requests match your filters" description="Try a different search term or clear filters." />
           ) : (
             <Card>
+              <FilterTransition filterKey={`${reorderQuery}-${reorderStatusFilter}-${reorderSupplierFilter}-${reorderDateSort}-${reorderPage}`}>
               <MobileList>
                 {reorderPageItems.map((req) => {
                   const supplier = supplierFor(req.supplier);
@@ -1203,6 +1235,7 @@ export default function Inventory() {
                 </Table>
               </div>
               <Pagination page={reorderPage} pageSize={reorderPageSize} total={reorderTotal} onPageChange={setReorderPage} onPageSizeChange={setReorderPageSize} />
+              </FilterTransition>
             </Card>
           )}
         </TabsContent>

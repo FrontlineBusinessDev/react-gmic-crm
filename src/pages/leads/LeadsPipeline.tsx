@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Plus, Phone, Mail, MapPin, FileText, ArrowRight, UserCheck, Search, X, Clock, ArrowUpDown, LayoutGrid, LayoutList } from "lucide-react";
+import { FilterButton } from "@/components/shared/filter-button";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -42,7 +43,8 @@ const stages: { key: ProjectStatus; label: string; accent: string }[] = [
 
 const sources: (Lead["source"] | "all")[] = ["all", "Facebook Messenger", "Referral", "Walk-in", "Website", "Phone Call"];
 const stageFilters: (ProjectStatus | "all")[] = ["all", "Inquiry", "Site Visit", "Quotation", "Follow-Up", "Project Won", "Project Lost"];
-const KANBAN_COLUMN_HEIGHT = "max-h-[560px]";
+// Sized to show exactly 4 lead cards (128px each, 8px gap) before scrolling.
+const KANBAN_COLUMN_HEIGHT = "max-h-[536px]";
 
 export default function LeadsPipeline() {
   const { leads, clients, addLead, moveLeadStage, convertLeadToClient } = useCrmStore();
@@ -140,7 +142,9 @@ export default function LeadsPipeline() {
 
   const { page, setPage, pageSize, setPageSize, pageItems, total: totalFiltered } = usePagination(filteredLeads, 10);
 
-  const hasActiveFilters = query.trim() !== "" || source !== "all" || stageFilter !== "all" || sortOrder !== "newest";
+  const activeFilterCount =
+    (source !== "all" ? 1 : 0) + (stageFilter !== "all" ? 1 : 0) + (sortOrder !== "newest" ? 1 : 0);
+  const hasActiveFilters = query.trim() !== "" || activeFilterCount > 0;
   function clearFilters() {
     setQuery("");
     setSource("all");
@@ -339,38 +343,49 @@ export default function LeadsPipeline() {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
               <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by client or unit..." className="pl-9" />
             </div>
-            <Select value={source} onValueChange={(v) => setSource(v as typeof source)}>
-              <SelectTrigger className="w-full sm:w-48">
-                <SelectValue placeholder="Source" />
-              </SelectTrigger>
-              <SelectContent>
-                {sources.map((s) => (
-                  <SelectItem key={s} value={s}>{s === "all" ? "All sources" : s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {view === "table" && (
-              <Select value={stageFilter} onValueChange={(v) => setStageFilter(v as typeof stageFilter)}>
-                <SelectTrigger className="w-full sm:w-44">
-                  <SelectValue placeholder="Stage" />
-                </SelectTrigger>
-                <SelectContent>
-                  {stageFilters.map((s) => (
-                    <SelectItem key={s} value={s}>{s === "all" ? "All stages" : stages.find((st) => st.key === s)?.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as typeof sortOrder)}>
-              <SelectTrigger className="w-full sm:w-44">
-                <ArrowUpDown className="h-3.5 w-3.5 text-ink-400" />
-                <SelectValue placeholder="Sort" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="newest">Newest first</SelectItem>
-                <SelectItem value="oldest">Oldest first</SelectItem>
-              </SelectContent>
-            </Select>
+            <FilterButton activeCount={activeFilterCount} onClear={clearFilters}>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Source</Label>
+                <Select value={source} onValueChange={(v) => setSource(v as typeof source)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sources.map((s) => (
+                      <SelectItem key={s} value={s}>{s === "all" ? "All sources" : s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {view === "table" && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Stage</Label>
+                  <Select value={stageFilter} onValueChange={(v) => setStageFilter(v as typeof stageFilter)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Stage" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {stageFilters.map((s) => (
+                        <SelectItem key={s} value={s}>{s === "all" ? "All stages" : stages.find((st) => st.key === s)?.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Sort by</Label>
+                <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as typeof sortOrder)}>
+                  <SelectTrigger className="w-full">
+                    <ArrowUpDown className="h-3.5 w-3.5 text-ink-400" />
+                    <SelectValue placeholder="Sort" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">Newest first</SelectItem>
+                    <SelectItem value="oldest">Oldest first</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </FilterButton>
             {hasActiveFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="text-ink-500">
                 <X className="h-3.5 w-3.5" /> Clear
@@ -381,7 +396,7 @@ export default function LeadsPipeline() {
 
         <TabsContent value="kanban">
           <FilterTransition filterKey={`${query}-${source}-${sortOrder}`}>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="kanban-scroll flex gap-4 overflow-x-auto pb-4">
             {stages.map((stage) => {
               const stageLeads = filteredLeads.filter((l) => l.stage === stage.key);
               const isDropTarget = dragOverStage === stage.key && draggedLead?.stage !== stage.key;
@@ -389,7 +404,7 @@ export default function LeadsPipeline() {
               return (
                 <div
                   key={stage.key}
-                  className="flex flex-col gap-3"
+                  className="flex w-[280px] shrink-0 flex-col gap-3"
                   onDragOver={(e) => {
                     if (!canDropHere) return;
                     e.preventDefault();

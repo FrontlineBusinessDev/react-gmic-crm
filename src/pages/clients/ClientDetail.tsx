@@ -49,6 +49,7 @@ import {
 } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
+import { FilterButton } from "@/components/shared/filter-button";
 import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
 import { usePagination } from "@/lib/use-pagination";
@@ -256,6 +257,8 @@ export default function ClientDetail() {
   });
   const hasActiveUnitFilters =
     unitQuery.trim() !== "" || unitStatusFilter !== "all" || unitTypeFilter !== "all";
+  const activeUnitFilterCount =
+    (unitStatusFilter !== "all" ? 1 : 0) + (unitTypeFilter !== "all" ? 1 : 0);
 
   function clearUnitFilters() {
     setUnitQuery("");
@@ -284,6 +287,7 @@ export default function ClientDetail() {
   });
   const hasActiveInvoiceFilters =
     invoiceQuery.trim() !== "" || invoiceStatusFilter !== "all";
+  const activeInvoiceFilterCount = invoiceStatusFilter !== "all" ? 1 : 0;
 
   function clearInvoiceFilters() {
     setInvoiceQuery("");
@@ -797,38 +801,46 @@ export default function ClientDetail() {
                     className="pl-9"
                   />
                 </div>
-                <Select
-                  value={unitStatusFilter}
-                  onValueChange={(v) =>
-                    setUnitStatusFilter(v as typeof unitStatusFilter)
-                  }
-                >
-                  <SelectTrigger className="w-full sm:w-44">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {unitStatusFilters.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s === "all" ? "All statuses" : unitStatusLabels[s]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={unitTypeFilter}
-                  onValueChange={(v) => setUnitTypeFilter(v as typeof unitTypeFilter)}
-                >
-                  <SelectTrigger className="w-full sm:w-44">
-                    <SelectValue placeholder="Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {unitTypeFilters.map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {t === "all" ? "All types" : t}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <FilterButton activeCount={activeUnitFilterCount} onClear={clearUnitFilters}>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Status</Label>
+                    <Select
+                      value={unitStatusFilter}
+                      onValueChange={(v) =>
+                        setUnitStatusFilter(v as typeof unitStatusFilter)
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {unitStatusFilters.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {s === "all" ? "All statuses" : unitStatusLabels[s]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Type</Label>
+                    <Select
+                      value={unitTypeFilter}
+                      onValueChange={(v) => setUnitTypeFilter(v as typeof unitTypeFilter)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {unitTypeFilters.map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {t === "all" ? "All types" : t}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </FilterButton>
                 {hasActiveUnitFilters && (
                   <Button
                     variant="ghost"
@@ -981,23 +993,28 @@ export default function ClientDetail() {
                     className="pl-9"
                   />
                 </div>
-                <Select
-                  value={invoiceStatusFilter}
-                  onValueChange={(v) =>
-                    setInvoiceStatusFilter(v as typeof invoiceStatusFilter)
-                  }
-                >
-                  <SelectTrigger className="w-full sm:w-44">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {invoiceStatusFilters.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <FilterButton activeCount={activeInvoiceFilterCount} onClear={clearInvoiceFilters}>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Status</Label>
+                    <Select
+                      value={invoiceStatusFilter}
+                      onValueChange={(v) =>
+                        setInvoiceStatusFilter(v as typeof invoiceStatusFilter)
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {invoiceStatusFilters.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </FilterButton>
                 {hasActiveInvoiceFilters && (
                   <Button
                     variant="ghost"

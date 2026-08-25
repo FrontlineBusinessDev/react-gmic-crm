@@ -183,7 +183,7 @@ interface CrmState {
   // Schedule
   addJob: (job: Omit<ScheduleJob, "id">) => void;
   updateJob: (jobId: string, updates: Omit<ScheduleJob, "id">) => void;
-  updateJobStatus: (jobId: string, status: JobStatus) => InstallationOutcome | undefined;
+  updateJobStatus: (jobId: string, status: JobStatus, cancellationReason?: string) => InstallationOutcome | undefined;
   logAdditionalMaterials: (jobId: string, materials: AdditionalMaterialsUsage) => void;
   addJobNote: (jobId: string, entry: { authorId: string; authorName: string; text?: string; photos?: string[] }) => void;
   deleteJob: (jobId: string) => void;
@@ -935,13 +935,26 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     });
   },
 
-  updateJobStatus: (jobId, status) => {
+  updateJobStatus: (jobId, status, cancellationReason) => {
     const before = get().schedule.find((j) => j.id === jobId);
-    set((s) => ({ schedule: s.schedule.map((j) => (j.id === jobId ? { ...j, status } : j)) }));
+    set((s) => ({
+      schedule: s.schedule.map((j) =>
+        j.id === jobId
+          ? { ...j, status, ...(status === "cancelled" ? { cancellationReason } : {}) }
+          : j,
+      ),
+    }));
     const job = get().schedule.find((j) => j.id === jobId);
     if (!job) return undefined;
 
-    get().logActivity({ type: "note", message: `${job.title} marked as ${status.replace("_", " ")}`, actor: "You" });
+    get().logActivity({
+      type: "note",
+      message:
+        status === "cancelled"
+          ? `${job.title} cancelled${cancellationReason ? ` — ${cancellationReason}` : ""}`
+          : `${job.title} marked as ${status.replace("_", " ")}`,
+      actor: "You",
+    });
     const changes = before ? computeFieldDiff(before, job, ["status"]) : [];
     get().logAudit({ module: "schedule", entityId: jobId, entityLabel: job.title, action: "update", changes, actor: "You" });
 

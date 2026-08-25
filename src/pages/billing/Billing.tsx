@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { FilterButton } from "@/components/shared/filter-button";
 import {
   Dialog,
   DialogContent,
@@ -165,7 +166,8 @@ export default function Billing() {
   }, [invoices, query, status]);
 
   const { page, setPage, pageSize, setPageSize, pageItems, total: totalFiltered } = usePagination(filteredInvoices, 10);
-  const hasActiveFilters = query.trim() !== "" || status !== "all";
+  const activeFilterCount = status !== "all" ? 1 : 0;
+  const hasActiveFilters = query.trim() !== "" || activeFilterCount > 0;
 
   function clearFilters() {
     setQuery("");
@@ -447,18 +449,23 @@ export default function Billing() {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
               <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search invoice # or client..." className="pl-9" />
             </div>
-            <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
-              <SelectTrigger className="w-full sm:w-44">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                {statusFilters.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <FilterButton activeCount={activeFilterCount} onClear={clearFilters}>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Status</Label>
+                <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusFilters.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </FilterButton>
             {hasActiveFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="text-ink-500">
                 <X className="h-3.5 w-3.5" /> Clear

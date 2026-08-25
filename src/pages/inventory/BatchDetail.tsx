@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useParams, Navigate, Link } from "react-router-dom";
-import { ArrowLeft, ArrowUpDown, X, PackageSearch, Wallet } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, PackageSearch, Wallet } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,9 +16,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { FilterButton } from "@/components/shared/filter-button";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/mobile-list";
 import { EmptyState } from "@/components/shared/empty-state";
+import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
@@ -72,7 +74,8 @@ export default function BatchDetail() {
   }, [linesWithItem, categoryFilter, sortField, sortDir]);
 
   const { page, setPage, pageSize, setPageSize, pageItems, total } = usePagination(visibleLines, 5);
-  const hasActiveFilters = categoryFilter !== "all" || sortField !== "none";
+  const activeFilterCount =
+    (categoryFilter !== "all" ? 1 : 0) + (sortField !== "none" || sortDir !== "desc" ? 1 : 0);
 
   function clearFilters() {
     setCategoryFilter("all");
@@ -195,48 +198,53 @@ export default function BatchDetail() {
         </CardHeader>
         <CardContent>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-full sm:w-44">
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All categories</SelectItem>
-                {categoryOptions.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={sortField} onValueChange={(v) => setSortField(v as typeof sortField)}>
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                {sortFields.map((f) => (
-                  <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              disabled={sortField === "none"}
-              onClick={() => setSortDir((v) => (v === "asc" ? "desc" : "asc"))}
-              title="Toggle sort direction"
-            >
-              <ArrowUpDown className="h-3.5 w-3.5" /> {sortDir === "asc" ? "Ascending" : "Descending"}
-            </Button>
-            {hasActiveFilters && (
-              <Button variant="ghost" size="sm" onClick={clearFilters} className="text-ink-500">
-                <X className="h-3.5 w-3.5" /> Clear
-              </Button>
-            )}
+            <FilterButton activeCount={activeFilterCount} onClear={clearFilters}>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Category</Label>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All categories</SelectItem>
+                    {categoryOptions.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Sort by</Label>
+                <div className="flex gap-2">
+                  <Select value={sortField} onValueChange={(v) => setSortField(v as typeof sortField)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Sort by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sortFields.map((f) => (
+                        <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0"
+                    disabled={sortField === "none"}
+                    onClick={() => setSortDir((v) => (v === "asc" ? "desc" : "asc"))}
+                    title="Toggle sort direction"
+                  >
+                    <ArrowUpDown className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </FilterButton>
           </div>
 
           {visibleLines.length === 0 ? (
             <EmptyState icon={PackageSearch} title="No lines match your filters" description="Try a different category or clear filters." />
           ) : (
-            <>
+            <FilterTransition filterKey={`${categoryFilter}-${sortField}-${sortDir}-${page}`}>
               <MobileList>
                 {pageItems.map(({ line, item }) => (
                   <MobileListCard key={line.id}>
@@ -280,7 +288,7 @@ export default function BatchDetail() {
                 </Table>
               </div>
               <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} pageSizeOptions={[5, 10, 25, 50]} />
-            </>
+            </FilterTransition>
           )}
         </CardContent>
       </Card>

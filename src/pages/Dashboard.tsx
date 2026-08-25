@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Users, Target, Wallet, Boxes, ArrowRight, Clock } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { ResponsiveBar } from "@nivo/bar";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { ProjectStatusBadge } from "@/components/shared/status-badge";
 import { useCrmStore } from "@/store/crmStore";
 import { useAuthStore } from "@/store/authStore";
 import { formatCurrency, formatDateTime, initials } from "@/lib/utils";
+import { CHART_COLORS, nivoTheme } from "@/lib/nivo-theme";
 import { mockUsers } from "@/data/users";
 
 export default function Dashboard() {
@@ -68,18 +69,21 @@ export default function Dashboard() {
             <CardDescription>Distribution of leads across each stage</CardDescription>
           </CardHeader>
           <CardContent className="h-64 pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={pipelineData}>
-                <CartesianGrid vertical={false} stroke="var(--color-ink-100)" />
-                <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={12} stroke="var(--color-ink-500)" />
-                <YAxis tickLine={false} axisLine={false} fontSize={12} stroke="var(--color-ink-500)" allowDecimals={false} />
-                <Tooltip
-                  cursor={{ fill: "var(--color-ink-50)" }}
-                  contentStyle={{ borderRadius: 8, border: "1px solid var(--color-ink-100)", fontSize: 12 }}
-                />
-                <Bar dataKey="value" fill="var(--color-brand-blue-500)" radius={[6, 6, 0, 0]} maxBarSize={48} />
-              </BarChart>
-            </ResponsiveContainer>
+            <ResponsiveBar
+              data={pipelineData}
+              keys={["value"]}
+              indexBy="name"
+              margin={{ top: 10, right: 10, bottom: 30, left: 40 }}
+              padding={0.4}
+              colors={CHART_COLORS[0]}
+              borderRadius={6}
+              theme={nivoTheme}
+              axisBottom={{ tickSize: 0, tickPadding: 8 }}
+              axisLeft={{ tickSize: 0, tickPadding: 8, format: (v) => Number.isInteger(Number(v)) ? v : "" }}
+              enableGridX={false}
+              enableLabel={false}
+              tooltipLabel={(d) => String(d.indexValue)}
+            />
           </CardContent>
         </Card>
 

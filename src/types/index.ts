@@ -267,6 +267,8 @@ export interface ScheduleJob {
   additionalMaterials?: AdditionalMaterialsUsage;
   /** Open-ended log of notes/photos added by admins or technicians over the life of the job. */
   noteEntries?: JobNoteEntry[];
+  /** Why the job was cancelled — set when status is moved to "cancelled". */
+  cancellationReason?: string;
 }
 
 // ---------- Billing ----------
@@ -362,21 +364,6 @@ export interface PurchaseBatch {
   createdAt: string;
   createdBy: string;
   receivedAt?: string;
-}
-
-// ---------- Reports ----------
-
-export type RecommendationKind = "reorder" | "follow_up" | "warranty_expiring" | "slow_moving";
-export type RecommendationSeverity = "info" | "warning" | "critical";
-
-export interface Recommendation {
-  id: string;
-  kind: RecommendationKind;
-  title: string;
-  detail: string;
-  relatedEntityId?: string; // clientId or inventoryItemId
-  severity: RecommendationSeverity;
-  generatedAt: string;
 }
 
 // ---------- Audit trail ----------

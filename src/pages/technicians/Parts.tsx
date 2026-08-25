@@ -4,10 +4,13 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { FilterButton } from "@/components/shared/filter-button";
 import { EmptyState } from "@/components/shared/empty-state";
+import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
@@ -44,7 +47,9 @@ export default function Parts() {
   }, [activeItems, query, categoryFilter, supplierFilter, lowStockOnly]);
 
   const { page, setPage, pageSize, setPageSize, pageItems, total } = usePagination(filtered, 10);
-  const hasActiveFilters = query.trim() !== "" || categoryFilter !== "all" || supplierFilter !== "all" || lowStockOnly;
+  const activeFilterCount =
+    (categoryFilter !== "all" ? 1 : 0) + (supplierFilter !== "all" ? 1 : 0) + (lowStockOnly ? 1 : 0);
+  const hasActiveFilters = query.trim() !== "" || activeFilterCount > 0;
 
   function clearFilters() {
     setQuery("");
@@ -66,31 +71,42 @@ export default function Parts() {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
             <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search item or SKU..." className="pl-9" />
           </div>
-          <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as typeof categoryFilter)}>
-            <SelectTrigger className="w-full sm:w-40"><SelectValue placeholder="Category" /></SelectTrigger>
-            <SelectContent>
-              {categories.map((c) => (
-                <SelectItem key={c} value={c}>{c === "all" ? "All categories" : c}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={supplierFilter} onValueChange={setSupplierFilter}>
-            <SelectTrigger className="w-full sm:w-48"><SelectValue placeholder="Supplier" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All suppliers</SelectItem>
-              {supplierOptions.map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant={lowStockOnly ? "brand" : "outline"}
-            size="sm"
-            onClick={() => setLowStockOnly((v) => !v)}
-            className="shrink-0"
-          >
-            <AlertTriangle className="h-3.5 w-3.5" /> Low stock only
-          </Button>
+          <FilterButton activeCount={activeFilterCount} onClear={clearFilters}>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Category</Label>
+              <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as typeof categoryFilter)}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Category" /></SelectTrigger>
+                <SelectContent>
+                  {categories.map((c) => (
+                    <SelectItem key={c} value={c}>{c === "all" ? "All categories" : c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Supplier</Label>
+              <Select value={supplierFilter} onValueChange={setSupplierFilter}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Supplier" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All suppliers</SelectItem>
+                  {supplierOptions.map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Stock</Label>
+              <Button
+                variant={lowStockOnly ? "brand" : "outline"}
+                size="sm"
+                onClick={() => setLowStockOnly((v) => !v)}
+                className="w-full justify-start"
+              >
+                <AlertTriangle className="h-3.5 w-3.5" /> Low stock only
+              </Button>
+            </div>
+          </FilterButton>
           {hasActiveFilters && (
             <Button variant="ghost" size="sm" onClick={clearFilters} className="text-ink-500">
               <X className="h-3.5 w-3.5" /> Clear
@@ -103,6 +119,7 @@ export default function Parts() {
         <EmptyState icon={Boxes} title="No items match your filters" description="Try a different search term or clear filters." />
       ) : (
         <Card>
+          <FilterTransition filterKey={`${query}-${categoryFilter}-${supplierFilter}-${lowStockOnly}-${page}`}>
           {/* Desktop: full table. Mobile: card list so nothing gets clipped by horizontal scroll in the field. */}
           <div className="hidden md:block">
             <Table>
@@ -173,6 +190,7 @@ export default function Parts() {
           </div>
 
           <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
+          </FilterTransition>
         </Card>
       )}
     </div>
