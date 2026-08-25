@@ -677,7 +677,7 @@ export default function ClientsList() {
                     <TableRow
                       key={client.id}
                       onClick={() => navigate(`/clients/${client.id}`)}
-                      className="cursor-pointer"
+                      className="group cursor-pointer transition-colors hover:bg-brand-blue-50/60"
                     >
                       <TableCell>
                         <Link
@@ -719,7 +719,7 @@ export default function ClientsList() {
                           )}
                           <Link to={`/clients/${client.id}`}>
                             <Button variant="ghost" size="icon">
-                              <ChevronRight className="h-4 w-4" />
+                              <ChevronRight className="h-4 w-4 text-ink-300 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-blue-600" />
                             </Button>
                           </Link>
                         </div>

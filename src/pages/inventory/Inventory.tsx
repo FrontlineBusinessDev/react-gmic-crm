@@ -815,7 +815,7 @@ export default function Inventory() {
                         const low = item.quantityOnHand <= item.reorderLevel;
                         const status = item.status ?? "active";
                         return (
-                          <TableRow key={item.id}>
+                          <TableRow key={item.id} onClick={() => openEdit(item)} className="cursor-pointer">
                             <TableCell>
                               <p className="font-medium text-ink-800">{item.name}</p>
                               <p className="font-mono-data text-xs text-ink-400">{item.sku}</p>
@@ -832,7 +832,7 @@ export default function Inventory() {
                             <TableCell className="text-sm text-ink-600">{item.supplier}</TableCell>
                             <TableCell><InventoryStatusBadge status={status} /></TableCell>
                             <TableCell>
-                              <div className="flex items-center justify-end gap-1">
+                              <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                                 {low && status === "active" && (
                                   <Button size="sm" variant="outline" className="text-brand-crimson-600" onClick={() => openReorder(item)}>
                                     <PackagePlus className="h-3.5 w-3.5" /> Request Reorder
