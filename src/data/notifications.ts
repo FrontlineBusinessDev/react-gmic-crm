@@ -39,45 +39,6 @@ export const mockNotifications: NotificationItem[] = [
     targetRoles: ["admin"],
   },
 
-  // Sales
-  {
-    id: "n-5",
-    type: "lead",
-    title: "New lead assigned",
-    message: "Coastal Bakeshop was assigned to you via Walk-in",
-    timestamp: "2026-08-12T09:15:00",
-    read: false,
-    targetRoles: ["sales"],
-    userId: "u-sales",
-  },
-  {
-    id: "n-6",
-    type: "lead",
-    title: "Survey report ready",
-    message: "Jerome Suarez filed a survey report for Familia Reyes",
-    timestamp: "2026-08-08T15:30:00",
-    read: false,
-    targetRoles: ["sales"],
-  },
-  {
-    id: "n-7",
-    type: "payment",
-    title: "Client payment posted",
-    message: "Bayview Grille Corp. paid ₱13,000 toward INV-1038",
-    timestamp: "2026-08-17T14:22:00",
-    read: true,
-    targetRoles: ["sales"],
-  },
-  {
-    id: "n-8",
-    type: "system",
-    title: "Proposal expiring soon",
-    message: "Green Meadows HOA proposal expires in 3 days",
-    timestamp: "2026-08-16T10:00:00",
-    read: false,
-    targetRoles: ["sales"],
-  },
-
   // Technician
   {
     id: "n-9",
@@ -126,6 +87,6 @@ export const mockNotifications: NotificationItem[] = [
     message: "GMIC CRM will be briefly unavailable Sunday 2:00–3:00 AM for maintenance",
     timestamp: "2026-08-16T07:00:00",
     read: false,
-    targetRoles: ["admin", "sales", "technician"],
+    targetRoles: ["admin", "technician"],
   },
 ];

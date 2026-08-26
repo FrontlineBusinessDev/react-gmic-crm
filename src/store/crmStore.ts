@@ -149,6 +149,8 @@ interface CrmState {
   receivePurchaseBatch: (id: string) => void;
   cancelPurchaseBatch: (id: string) => void;
   recordBatchPayment: (id: string, amount: number) => void;
+  addBatchLine: (batchId: string, line: Omit<PurchaseBatchLine, "id">) => void;
+  updateBatchLine: (batchId: string, lineId: string, updates: Partial<Omit<PurchaseBatchLine, "id">>) => void;
 
   // Reorder Requests
   addReorderRequest: (input: { inventoryItemId: string; quantityRequested: number; notes?: string }) => void;
@@ -648,6 +650,48 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       entityLabel: batch.batchNumber,
       action: "update",
       changes: [{ field: "amountPaid", oldValue: batch.amountPaid, newValue: newAmountPaid }],
+      actor: "You",
+    });
+  },
+
+  addBatchLine: (batchId, line) => {
+    const batch = get().purchaseBatches.find((b) => b.id === batchId);
+    if (!batch || batch.status !== "open") return;
+    const newLine: PurchaseBatchLine = { ...line, id: nextId("bl") };
+    const totalCost = [...batch.lines, newLine].reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
+    set((s) => ({
+      purchaseBatches: s.purchaseBatches.map((b) =>
+        b.id === batchId ? { ...b, lines: [...b.lines, newLine], totalCost } : b
+      ),
+    }));
+    get().logAudit({
+      module: "purchaseBatch",
+      entityId: batchId,
+      entityLabel: batch.batchNumber,
+      action: "update",
+      changes: [{ field: "lines", oldValue: `+${newLine.itemName}`, newValue: `qty ${newLine.quantity} @ ${newLine.unitCost}` }],
+      actor: "You",
+    });
+  },
+
+  updateBatchLine: (batchId, lineId, updates) => {
+    const batch = get().purchaseBatches.find((b) => b.id === batchId);
+    if (!batch || batch.status !== "open") return;
+    const existing = batch.lines.find((l) => l.id === lineId);
+    if (!existing) return;
+    const newLines = batch.lines.map((l) => (l.id === lineId ? { ...l, ...updates } : l));
+    const totalCost = newLines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
+    set((s) => ({
+      purchaseBatches: s.purchaseBatches.map((b) =>
+        b.id === batchId ? { ...b, lines: newLines, totalCost } : b
+      ),
+    }));
+    get().logAudit({
+      module: "purchaseBatch",
+      entityId: batchId,
+      entityLabel: batch.batchNumber,
+      action: "update",
+      changes: [{ field: "lines", oldValue: `${existing.itemName} qty ${existing.quantity} @ ${existing.unitCost}`, newValue: `${updates.itemName ?? existing.itemName} qty ${updates.quantity ?? existing.quantity} @ ${updates.unitCost ?? existing.unitCost}` }],
       actor: "You",
     });
   },

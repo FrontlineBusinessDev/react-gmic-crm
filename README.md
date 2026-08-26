@@ -41,7 +41,6 @@ Use the quick-login buttons on the sign-in screen, or sign in manually:
 | Role | Email | Password |
 |---|---|---|
 | Admin | admin@gmiccares.ph | admin123 |
-| Sales | sales@gmiccares.ph | sales123 |
 | Technician | tech@gmiccares.ph | tech123 |
 
 ## What's functional in this demo

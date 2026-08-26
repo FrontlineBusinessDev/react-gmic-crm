@@ -108,12 +108,17 @@ export default function Inventory() {
     () => inventoryCategories.filter((c) => c.status === "active"),
     [inventoryCategories]
   );
+  const batchableInventory = useMemo(
+    () => inventory.filter((i) => (i.status ?? "active") === "active" && i.category !== "AC Unit"),
+    [inventory]
+  );
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryTracksSerials, setNewCategoryTracksSerials] = useState(false);
   const [categoryEditId, setCategoryEditId] = useState<string | null>(null);
   const [categoryEditName, setCategoryEditName] = useState("");
 
+  const [activeTab, setActiveTab] = useState("list");
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchForm, setBatchForm] = useState(emptyBatchForm);
   const [importOpen, setImportOpen] = useState(false);
@@ -487,7 +492,7 @@ export default function Inventory() {
   }
 
   function addBatchLine() {
-    const first = inventory.find((i) => (i.status ?? "active") === "active");
+    const first = batchableInventory[0];
     if (!first) return;
     setBatchForm((f) => ({
       ...f,
@@ -529,6 +534,9 @@ export default function Inventory() {
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <FileUp className="h-4 w-4" /> Import CSV
             </Button>
+          {activeTab === "batches" ? (
+            <Button variant="brand" onClick={openNewBatch}><Plus className="h-4 w-4" /> New Batch</Button>
+          ) : (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button variant="brand" onClick={openAdd}><Plus className="h-4 w-4" /> Add Item</Button>
@@ -658,6 +666,7 @@ export default function Inventory() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          )}
           </div>
         }
       />
@@ -673,7 +682,7 @@ export default function Inventory() {
         onImport={handleInventoryImport}
       />
 
-      <Tabs defaultValue="list">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="list">Product</TabsTrigger>
           <TabsTrigger value="batches">Inventory</TabsTrigger>
@@ -865,11 +874,6 @@ export default function Inventory() {
         </TabsContent>
 
         <TabsContent value="batches" className="space-y-6">
-          <div className="mb-4 flex justify-end">
-            <Button variant="brand" size="sm" onClick={openNewBatch}>
-              <Plus className="h-3.5 w-3.5" /> New Batch
-            </Button>
-          </div>
           {purchaseBatches.length === 0 ? (
             <EmptyState icon={PackageOpen} title="No purchase batches yet" description="Record a batch to track cost and serials for a supplier delivery." />
           ) : (
@@ -1529,14 +1533,9 @@ export default function Inventory() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center justify-between">
-              <Label>Lines</Label>
-              <Button type="button" size="sm" variant="outline" onClick={addBatchLine}>
-                <Plus className="h-3.5 w-3.5" /> Add line
-              </Button>
-            </div>
+            <Label>Materials/Parts</Label>
             {batchForm.lines.length === 0 ? (
-              <p className="text-xs text-ink-400 italic">No lines added yet.</p>
+              <p className="text-xs text-ink-400 italic">No materials/parts added yet.</p>
             ) : (
               <div className="space-y-3">
                 {batchForm.lines.map((line) => {
@@ -1554,7 +1553,7 @@ export default function Inventory() {
                         >
                           <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            {inventory.filter((i) => (i.status ?? "active") === "active").map((i) => (
+                            {batchableInventory.map((i) => (
                               <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
                             ))}
                           </SelectContent>
@@ -1590,6 +1589,9 @@ export default function Inventory() {
                 })}
               </div>
             )}
+            <Button type="button" size="sm" variant="outline" className="w-full" onClick={addBatchLine}>
+              <Plus className="h-3.5 w-3.5" /> Add material/part
+            </Button>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setBatchOpen(false)}>Cancel</Button>

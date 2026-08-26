@@ -9,13 +9,6 @@ export const mockRoles: RoleDefinition[] = [
     status: "active",
   },
   {
-    id: "sales",
-    label: "Sales & Client Relations",
-    description: "Clients, leads, inventory, scheduling, and billing.",
-    modules: ["/", "/clients", "/leads", "/product", "/suppliers", "/service-catalog", "/schedule", "/billing"],
-    status: "archived",
-  },
-  {
     id: "technician",
     label: "Technician",
     description: "Read-only job details — no client contact info or pricing.",

@@ -93,6 +93,12 @@ export default function Billing() {
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [invoiceTab, setInvoiceTab] = useState<"unit" | "service">("unit");
   const [form, setForm] = useState({ clientId: "", sourceId: "", description: "", qty: "1", unitPrice: "", dueDate: "" });
+  const [recordPaymentNow, setRecordPaymentNow] = useState(false);
+  const [initialPayAmount, setInitialPayAmount] = useState("");
+  const [initialProofUrl, setInitialProofUrl] = useState<string | null>(null);
+  const [initialProofFileName, setInitialProofFileName] = useState<string | null>(null);
+  const [initialPaidWithoutProof, setInitialPaidWithoutProof] = useState(false);
+  const [initialPaymentError, setInitialPaymentError] = useState<string | null>(null);
   const [customizeInvoiceNumber, setCustomizeInvoiceNumber] = useState(false);
   const [manualInvoiceNumber, setManualInvoiceNumber] = useState("");
   const [invoiceSettingsOpen, setInvoiceSettingsOpen] = useState(false);
@@ -190,12 +196,48 @@ export default function Billing() {
     setInvoiceTab("unit");
     setCustomizeInvoiceNumber(false);
     setManualInvoiceNumber(previewNextInvoiceNumber());
+    resetInitialPayment();
     setAddOpen(true);
+  }
+
+  function resetInitialPayment() {
+    if (initialProofUrl) URL.revokeObjectURL(initialProofUrl);
+    setRecordPaymentNow(false);
+    setInitialPayAmount("");
+    setInitialProofUrl(null);
+    setInitialProofFileName(null);
+    setInitialPaidWithoutProof(false);
+    setInitialPaymentError(null);
+  }
+
+  function handleInitialProofSelect(files: File[]) {
+    const file = files[0];
+    if (!file) return;
+    if (initialProofUrl) URL.revokeObjectURL(initialProofUrl);
+    setInitialProofUrl(URL.createObjectURL(file));
+    setInitialProofFileName(file.name);
+    setInitialPaymentError(null);
+  }
+
+  function removeInitialProof() {
+    if (initialProofUrl) URL.revokeObjectURL(initialProofUrl);
+    setInitialProofUrl(null);
+    setInitialProofFileName(null);
   }
 
   function handleAddInvoice() {
     const client = clients.find((c) => c.id === form.clientId);
     if (!client || !form.description || !form.unitPrice) return;
+    if (recordPaymentNow) {
+      if (!initialPayAmount) {
+        setInitialPaymentError("Enter a payment amount, or turn off Record payment now.");
+        return;
+      }
+      if (!initialProofUrl && !initialPaidWithoutProof) {
+        setInitialPaymentError("Attach proof of payment, or confirm marking this as paid without proof.");
+        return;
+      }
+    }
     addInvoice({
       clientId: client.id,
       clientName: client.name,
@@ -215,9 +257,18 @@ export default function Billing() {
       status: "unpaid",
       invoiceNumber: customizeInvoiceNumber ? manualInvoiceNumber.trim() : undefined,
     });
+    if (recordPaymentNow) {
+      const newInvoice = useCrmStore.getState().invoices[0];
+      recordPayment(newInvoice.id, Number(initialPayAmount), {
+        url: initialProofUrl ?? undefined,
+        fileName: initialProofFileName ?? undefined,
+        paidWithoutProof: !initialProofUrl && initialPaidWithoutProof,
+      });
+    }
     setForm({ clientId: "", sourceId: "", description: "", qty: "1", unitPrice: "", dueDate: "" });
     setInvoiceTab("unit");
     setCustomizeInvoiceNumber(false);
+    resetInitialPayment();
     setAddOpen(false);
   }
 
@@ -310,7 +361,7 @@ export default function Billing() {
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <FileUp className="h-4 w-4" /> Import CSV
             </Button>
-            <Dialog open={addOpen} onOpenChange={(o) => (o ? openAddInvoice() : setAddOpen(false))}>
+            <Dialog open={addOpen} onOpenChange={(o) => (o ? openAddInvoice() : (setAddOpen(false), resetInitialPayment()))}>
               <DialogTrigger asChild>
                 <Button variant="brand"><Plus className="h-4 w-4" /> Create Invoice</Button>
               </DialogTrigger>
@@ -408,9 +459,72 @@ export default function Billing() {
                   <Label>Due date</Label>
                   <DatePicker value={form.dueDate} onChange={(v) => setForm({ ...form, dueDate: v })} />
                 </div>
+                <div className="space-y-2 rounded-lg border border-ink-100 bg-ink-50/60 p-3">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-ink-700">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400"
+                      checked={recordPaymentNow}
+                      onChange={(e) => {
+                        setRecordPaymentNow(e.target.checked);
+                        setInitialPaymentError(null);
+                      }}
+                    />
+                    <Wallet className="h-3.5 w-3.5 text-ink-400" /> Record payment now
+                  </label>
+                  {recordPaymentNow && (
+                    <div className="space-y-3 pt-1">
+                      <div className="space-y-1.5">
+                        <Label>Amount (₱)</Label>
+                        <Input
+                          type="number"
+                          value={initialPayAmount}
+                          onChange={(e) => setInitialPayAmount(e.target.value)}
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Proof of payment</Label>
+                        {initialProofUrl ? (
+                          <div className="flex items-center justify-between gap-2 rounded-lg border border-ink-100 bg-white px-3 py-2">
+                            <div className="flex min-w-0 items-center gap-2 text-sm text-ink-700">
+                              <Paperclip className="h-3.5 w-3.5 shrink-0 text-ink-400" />
+                              <span className="truncate">{initialProofFileName}</span>
+                            </div>
+                            <Button size="sm" variant="ghost" onClick={removeInitialProof}>
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <FileDropZone
+                            accept="image/*,.pdf"
+                            disabled={initialPaidWithoutProof}
+                            onFilesSelected={handleInitialProofSelect}
+                            label="Drag & drop a receipt or photo, or click to browse"
+                            hint="Image or PDF"
+                          />
+                        )}
+                        <label className="flex cursor-pointer items-center gap-2 pt-1 text-xs text-ink-500">
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400"
+                            checked={initialPaidWithoutProof}
+                            disabled={!!initialProofUrl}
+                            onChange={(e) => {
+                              setInitialPaidWithoutProof(e.target.checked);
+                              setInitialPaymentError(null);
+                            }}
+                          />
+                          Confirm mark as paid without proof of payment
+                        </label>
+                        {initialPaymentError && <p className="text-xs text-brand-crimson-600">{initialPaymentError}</p>}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
+                <Button variant="outline" onClick={() => { setAddOpen(false); resetInitialPayment(); }}>Cancel</Button>
                 <Button variant="brand" onClick={handleAddInvoice}>Create</Button>
               </DialogFooter>
             </DialogContent>

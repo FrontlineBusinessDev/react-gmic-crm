@@ -32,7 +32,6 @@ import type { NotificationType } from "@/types";
 
 const roleLabel: Record<string, string> = {
   admin: "Administrator",
-  sales: "Sales & Client Relations",
   technician: "Technician",
 };
 

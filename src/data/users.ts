@@ -12,16 +12,6 @@ export const mockUsers: User[] = [
     status: "active",
   },
   {
-    id: "u-sales",
-    name: "Marco Villanueva",
-    email: "sales@gmiccares.ph",
-    role: "sales",
-    avatarColor: "bg-brand-crimson-500",
-    title: "Sales & Client Relations",
-    password: "sales123",
-    status: "active",
-  },
-  {
     id: "u-tech",
     name: "Dindo Ramos",
     email: "tech@gmiccares.ph",

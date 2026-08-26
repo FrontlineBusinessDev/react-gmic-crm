@@ -163,7 +163,7 @@ export default function LeadsPipeline() {
       interestedUnit: form.interestedUnit,
       estimatedValue: Number(form.estimatedValue) || 0,
       stage: "Inquiry",
-      assignedTo: "u-sales",
+      assignedTo: "u-admin",
       notes: form.notes,
     });
     resetLeadForm();

@@ -11,7 +11,6 @@ import { initials } from "@/lib/utils";
 
 const demoAccounts = [
   { id: "u-admin", label: "Admin", icon: ShieldCheck, desc: "Full access" },
-  { id: "u-sales", label: "Sales", icon: Users, desc: "Clients & leads" },
   { id: "u-tech", label: "Technician", icon: Wrench, desc: "Field jobs only" },
 ];
 
@@ -172,7 +171,7 @@ export default function Login() {
               })}
             </div>
             <p className="mt-3 text-center text-[11px] text-ink-400">
-              Demo credentials — admin@gmiccares.ph / admin123, sales@gmiccares.ph / sales123, tech@gmiccares.ph /
+              Demo credentials — admin@gmiccares.ph / admin123, tech@gmiccares.ph /
               tech123
             </p>
           </div>
