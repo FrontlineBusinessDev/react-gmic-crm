@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Eye, EyeOff, ShieldCheck, Users, Wrench, ArrowRight } from "lucide-react";
+import { Eye, EyeOff, ShieldCheck, Wrench, ArrowRight } from "lucide-react";
 import { Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
