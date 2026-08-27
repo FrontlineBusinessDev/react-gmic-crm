@@ -117,7 +117,7 @@ export function GlobalSearch() {
         icon: Receipt,
         title: inv.invoiceNumber,
         subtitle: `${inv.clientName} • ${inv.status}`,
-        onSelect: () => select(() => navigate(`/billing?q=${encodeURIComponent(inv.invoiceNumber)}`)),
+        onSelect: () => select(() => navigate(`/financial?q=${encodeURIComponent(inv.invoiceNumber)}`)),
       });
     }
 

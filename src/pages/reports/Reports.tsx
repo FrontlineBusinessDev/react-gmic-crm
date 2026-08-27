@@ -148,7 +148,7 @@ export default function Reports() {
               </CardHeader>
               <CardContent className="h-72 pt-2">
                 {paidVsBalanceData.every((d) => d.value === 0) ? (
-                  <EmptyState icon={Users} title="No billing data" description="Client invoices will appear here once recorded." />
+                  <EmptyState icon={Users} title="No financial data" description="Client invoices will appear here once recorded." />
                 ) : (
                   <ResponsivePie
                     data={paidVsBalanceData}

@@ -12,12 +12,16 @@ import {
   CalendarCheck,
   Search,
   ChevronDown,
+  ChevronUp,
   X,
   Download,
   PhoneCall,
   Tag,
+  Paperclip,
+  StickyNote,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
+import { SurveyPhotoGrid } from "@/components/shared/survey-photos";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,14 +60,43 @@ import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { addMonthsIso, daysBetween, formatCurrency, formatDate } from "@/lib/utils";
 import { exportInvoicePdf } from "@/lib/invoice-pdf";
-import type { ClientSource, Unit, UnitStatus, Invoice, InvoiceStatus, ProjectStatus } from "@/types";
+import type {
+  ClientSource,
+  Unit,
+  UnitStatus,
+  Invoice,
+  InvoiceStatus,
+  PaymentRecord,
+  ProjectStatus,
+} from "@/types";
+
+function isImageFileName(name?: string) {
+  if (!name) return true;
+  return /\.(png|jpe?g|gif|webp|heic|bmp)$/i.test(name);
+}
+
+// Older seed invoices predate per-payment history tracking — synthesize a single
+// legacy entry from amountPaid so the history view still has something to show.
+function paymentHistoryFor(inv: Invoice): (PaymentRecord & { legacy?: boolean })[] {
+  if (inv.payments && inv.payments.length > 0) return inv.payments;
+  if (inv.amountPaid > 0) {
+    return [{ id: `${inv.id}-legacy`, date: inv.issueDate, amount: inv.amountPaid, legacy: true }];
+  }
+  return [];
+}
+
+function formatDateTime(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return formatDate(iso);
+  return d.toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
 
 const clientSourceOptions: ClientSource[] = ["GMIC", "Imperial", "MegaSaver", "Alfamart"];
 
 const postWonProjectStatuses: ProjectStatus[] = [
   "Phase 1 Installation",
   "Phase 2 Installation",
-  "Billing",
+  "Financial",
   "Collection",
   "PMS",
 ];
@@ -124,6 +157,7 @@ export default function ClientDetail() {
     invoices,
     inventory,
     inventoryCategories,
+    brands,
     addUnitToClient,
     markSerializedUnitInstalled,
     updateClient,
@@ -149,6 +183,7 @@ export default function ClientDetail() {
     serialIndoor: "",
     serialOutdoor: "",
     model: "",
+    brand: "",
     type: "Split Type" as Unit["type"],
     horsePower: "1.5 HP",
     location: "",
@@ -161,6 +196,7 @@ export default function ClientDetail() {
     useState<(typeof unitStatusFilters)[number]>("all");
   const [unitTypeFilter, setUnitTypeFilter] =
     useState<(typeof unitTypeFilters)[number]>("all");
+  const [unitBrandFilter, setUnitBrandFilter] = useState<string>("all");
   const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
 
   const [invoiceQuery, setInvoiceQuery] = useState("");
@@ -168,6 +204,20 @@ export default function ClientDetail() {
     useState<(typeof invoiceStatusFilters)[number]>("all");
   const [emailDialogInvoice, setEmailDialogInvoice] = useState<Invoice | null>(null);
   const [emailForm, setEmailForm] = useState({ subject: "", body: "" });
+  const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set());
+  const [proofViewPayment, setProofViewPayment] = useState<{
+    invoice: Invoice;
+    record: PaymentRecord & { legacy?: boolean };
+  } | null>(null);
+
+  function toggleInvoiceExpanded(id: string) {
+    setExpandedInvoices((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function openFollowupEmail(inv: Invoice) {
     if (!client) return;
@@ -241,6 +291,8 @@ export default function ClientDetail() {
   const linkedItem = inventory.find((i) => i.id === linkedItemId);
   const availableSerials = linkedItem?.serializedUnits?.filter((su) => su.status === "in_stock") ?? [];
   const linkedSerial = availableSerials.find((su) => su.id === linkedSerialId);
+  const activeBrands = brands.filter((b) => b.status === "active");
+  const unitBrandOptions = Array.from(new Set(client.units.map((u) => u.brand).filter(Boolean))) as string[];
 
   const unitSearch = unitQuery.trim().toLowerCase();
   const filteredUnits = client.units.filter((unit) => {
@@ -253,17 +305,19 @@ export default function ClientDetail() {
     const matchesStatus =
       unitStatusFilter === "all" || unit.status === unitStatusFilter;
     const matchesType = unitTypeFilter === "all" || unit.type === unitTypeFilter;
-    return matchesQuery && matchesStatus && matchesType;
+    const matchesBrand = unitBrandFilter === "all" || unit.brand === unitBrandFilter;
+    return matchesQuery && matchesStatus && matchesType && matchesBrand;
   });
   const hasActiveUnitFilters =
-    unitQuery.trim() !== "" || unitStatusFilter !== "all" || unitTypeFilter !== "all";
+    unitQuery.trim() !== "" || unitStatusFilter !== "all" || unitTypeFilter !== "all" || unitBrandFilter !== "all";
   const activeUnitFilterCount =
-    (unitStatusFilter !== "all" ? 1 : 0) + (unitTypeFilter !== "all" ? 1 : 0);
+    (unitStatusFilter !== "all" ? 1 : 0) + (unitTypeFilter !== "all" ? 1 : 0) + (unitBrandFilter !== "all" ? 1 : 0);
 
   function clearUnitFilters() {
     setUnitQuery("");
     setUnitStatusFilter("all");
     setUnitTypeFilter("all");
+    setUnitBrandFilter("all");
   }
 
   const {
@@ -306,12 +360,14 @@ export default function ClientDetail() {
   function handleAddUnit() {
     if (!client) return;
     const model = linkedItem ? linkedItem.name : unitForm.model;
+    const brand = linkedItem ? linkedItem.brand ?? "" : unitForm.brand;
     const serialIndoor = linkedSerial ? linkedSerial.serialIndoor : unitForm.serialIndoor;
     const serialOutdoor = linkedSerial ? linkedSerial.serialOutdoor ?? "" : unitForm.serialOutdoor;
     if (!serialIndoor || !model) return;
     addUnitToClient(client.id, {
       ...unitForm,
       model,
+      brand: brand || undefined,
       serialIndoor,
       serialOutdoor,
       installDate: new Date().toISOString().slice(0, 10),
@@ -324,6 +380,7 @@ export default function ClientDetail() {
       serialIndoor: "",
       serialOutdoor: "",
       model: "",
+      brand: "",
       type: "Split Type",
       horsePower: "1.5 HP",
       location: "",
@@ -436,7 +493,7 @@ export default function ClientDetail() {
                 )}
 
                 {linkedItem ? (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     <div className="space-y-1.5">
                       <Label>Model</Label>
                       <div className="flex h-9 items-center rounded-md border border-ink-100 bg-ink-50 px-3 text-sm text-ink-500">
@@ -449,18 +506,43 @@ export default function ClientDetail() {
                         {linkedSerial ? (linkedSerial.serialOutdoor ? `${linkedSerial.serialIndoor} / ${linkedSerial.serialOutdoor}` : linkedSerial.serialIndoor) : "Select a serial above"}
                       </div>
                     </div>
+                    <div className="space-y-1.5">
+                      <Label>Brand</Label>
+                      <div className="flex h-9 items-center rounded-md border border-ink-100 bg-ink-50 px-3 text-sm text-ink-500">
+                        {linkedItem.brand || "—"}
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <>
-                    <div className="space-y-1.5">
-                      <Label>Model</Label>
-                      <Input
-                        value={unitForm.model}
-                        onChange={(e) =>
-                          setUnitForm({ ...unitForm, model: e.target.value })
-                        }
-                        placeholder="e.g. Carrier Optimax 1.5HP"
-                      />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label>Model</Label>
+                        <Input
+                          value={unitForm.model}
+                          onChange={(e) =>
+                            setUnitForm({ ...unitForm, model: e.target.value })
+                          }
+                          placeholder="e.g. Carrier Optimax 1.5HP"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Brand</Label>
+                        <Select
+                          value={unitForm.brand || undefined}
+                          onValueChange={(v) => setUnitForm({ ...unitForm, brand: v })}
+                          disabled={activeBrands.length === 0}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder={activeBrands.length === 0 ? "No brands yet" : "Select a brand"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {activeBrands.map((b) => (
+                              <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
@@ -748,7 +830,7 @@ export default function ClientDetail() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Billing Summary</CardTitle>
+            <CardTitle>Financial Summary</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <div className="flex justify-between">
@@ -840,6 +922,20 @@ export default function ClientDetail() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Brand</Label>
+                    <Select value={unitBrandFilter} onValueChange={setUnitBrandFilter}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Brand" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All brands</SelectItem>
+                        {unitBrandOptions.map((b) => (
+                          <SelectItem key={b} value={b}>{b}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </FilterButton>
                 {hasActiveUnitFilters && (
                   <Button
@@ -860,7 +956,7 @@ export default function ClientDetail() {
                   description="Try a different search term or filter."
                 />
               ) : (
-                <FilterTransition filterKey={`${unitQuery}-${unitStatusFilter}-${unitTypeFilter}-${unitPage}`} className="space-y-4">
+                <FilterTransition filterKey={`${unitQuery}-${unitStatusFilter}-${unitTypeFilter}-${unitBrandFilter}-${unitPage}`} className="space-y-4">
                 <div className="space-y-3">
                   {unitPageItems.map((unit) => {
                     const warranty = warrantyInfo(unit);
@@ -871,13 +967,19 @@ export default function ClientDetail() {
                           <div>
                             <CardTitle>{unit.model}</CardTitle>
                             <p className="mt-1 text-xs text-ink-500">
-                              {unit.type} · {unit.horsePower} · {unit.location}
+                              {unit.brand ? `${unit.brand} · ` : ""}{unit.type} · {unit.horsePower} · {unit.location}
                             </p>
                           </div>
                           <UnitStatusBadge status={unit.status} />
                         </CardHeader>
                         <CardContent>
                           <div className="grid grid-cols-2 gap-3 rounded-lg bg-ink-50 p-3 font-mono-data text-xs sm:grid-cols-4">
+                            <div>
+                              <p className="text-ink-400">Brand</p>
+                              <p className="font-medium text-ink-800">
+                                {unit.brand || "—"}
+                              </p>
+                            </div>
                             <div>
                               <p className="text-ink-400">Indoor S/N</p>
                               <p className="font-medium text-ink-800">
@@ -942,6 +1044,9 @@ export default function ClientDetail() {
                                     <p className="text-xs text-ink-500">
                                       {record.notes}
                                     </p>
+                                    {record.photos && record.photos.length > 0 && (
+                                      <SurveyPhotoGrid photos={record.photos} />
+                                    )}
                                   </div>
                                   <span className="shrink-0 text-xs text-ink-400">
                                     {formatDate(record.date)}
@@ -1054,6 +1159,8 @@ export default function ClientDetail() {
                     const balance = invoiceBalance(inv);
                     const needsFollowup =
                       inv.status === "unpaid" || inv.status === "overdue";
+                    const history = paymentHistoryFor(inv);
+                    const expanded = expandedInvoices.has(inv.id);
                     return (
                       <Card key={inv.id}>
                         <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1104,6 +1211,21 @@ export default function ClientDetail() {
                                 </Button>
                               </>
                             )}
+                            {history.length > 0 && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="View notes & attachments"
+                                onClick={() => toggleInvoiceExpanded(inv.id)}
+                              >
+                                <History className="h-3.5 w-3.5" /> {history.length}
+                                {expanded ? (
+                                  <ChevronUp className="h-3.5 w-3.5" />
+                                ) : (
+                                  <ChevronDown className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant="ghost"
@@ -1114,6 +1236,60 @@ export default function ClientDetail() {
                             </Button>
                           </div>
                         </CardContent>
+                        {expanded && history.length > 0 && (
+                          <CardContent className="border-t border-ink-100 bg-ink-50/60 p-3 pt-3">
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">
+                              Payment notes & attachments ({history.length})
+                            </p>
+                            <div className="space-y-1.5">
+                              {history.map((p) => (
+                                <div
+                                  key={p.id}
+                                  className="flex flex-col gap-2 rounded-lg border border-ink-100 bg-white px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+                                >
+                                  <div className="min-w-0">
+                                    <span className="font-medium text-ink-700">
+                                      {formatCurrency(p.amount)}
+                                    </span>
+                                    <span className="ml-2 text-xs text-ink-400">
+                                      {p.legacy
+                                        ? `Recorded ${formatDate(p.date)} (before history tracking)`
+                                        : formatDateTime(p.date)}
+                                    </span>
+                                    {p.notes && (
+                                      <p className="mt-1 flex items-start gap-1.5 text-xs text-ink-600">
+                                        <StickyNote className="mt-0.5 h-3 w-3 shrink-0 text-ink-400" />
+                                        <span>{p.notes}</span>
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="shrink-0">
+                                    {p.proofUrl ? (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() =>
+                                          setProofViewPayment({ invoice: inv, record: p })
+                                        }
+                                      >
+                                        <Paperclip className="h-3.5 w-3.5" /> View file
+                                      </Button>
+                                    ) : p.proofFileName ? (
+                                      <div className="flex items-center gap-1.5 text-xs text-ink-500">
+                                        <Paperclip className="h-3.5 w-3.5 text-ink-400" />
+                                        {p.proofFileName}
+                                      </div>
+                                    ) : (
+                                      <Badge variant="secondary">
+                                        {p.paidWithoutProof ? "Marked paid, no proof" : "No attachment"}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </CardContent>
+                        )}
                       </Card>
                     );
                   })}
@@ -1178,6 +1354,63 @@ export default function ClientDetail() {
                       <Mail className="h-3.5 w-3.5" /> Open in Email Client
                     </Button>
                   </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              <Dialog
+                open={!!proofViewPayment}
+                onOpenChange={(o) => !o && setProofViewPayment(null)}
+              >
+                <DialogContent>
+                  {proofViewPayment && (
+                    <>
+                      <DialogHeader>
+                        <DialogTitle>Payment attachment</DialogTitle>
+                        <DialogDescription>
+                          {proofViewPayment.invoice.invoiceNumber} ·{" "}
+                          {formatCurrency(proofViewPayment.record.amount)} on{" "}
+                          {formatDateTime(proofViewPayment.record.date)}
+                        </DialogDescription>
+                      </DialogHeader>
+                      {proofViewPayment.record.notes && (
+                        <p className="flex items-start gap-1.5 rounded-lg border border-ink-100 bg-ink-50/60 px-3 py-2 text-sm text-ink-700">
+                          <StickyNote className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />
+                          <span>{proofViewPayment.record.notes}</span>
+                        </p>
+                      )}
+                      {isImageFileName(proofViewPayment.record.proofFileName) ? (
+                        <img
+                          src={proofViewPayment.record.proofUrl}
+                          alt="Proof of payment"
+                          className="max-h-[60vh] w-full rounded-lg border border-ink-100 object-contain"
+                        />
+                      ) : (
+                        <div className="flex items-center gap-2 rounded-lg border border-ink-100 bg-ink-50/60 px-3 py-2 text-sm text-ink-700">
+                          <Paperclip className="h-3.5 w-3.5 shrink-0 text-ink-400" />
+                          <span className="truncate">
+                            {proofViewPayment.record.proofFileName ?? "Attached file"}
+                          </span>
+                        </div>
+                      )}
+                      <DialogFooter>
+                        <Button
+                          variant="outline"
+                          onClick={() =>
+                            window.open(
+                              proofViewPayment.record.proofUrl,
+                              "_blank",
+                              "noopener,noreferrer",
+                            )
+                          }
+                        >
+                          Open in new tab
+                        </Button>
+                        <Button variant="brand" onClick={() => setProofViewPayment(null)}>
+                          Done
+                        </Button>
+                      </DialogFooter>
+                    </>
+                  )}
                 </DialogContent>
               </Dialog>
             </div>

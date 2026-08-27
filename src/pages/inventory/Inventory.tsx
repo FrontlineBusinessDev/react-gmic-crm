@@ -33,7 +33,7 @@ import { useCrmStore } from "@/store/crmStore";
 import { formatCurrency } from "@/lib/utils";
 import type { InventoryCategory, InventoryItem, InventoryStatus, ReorderRequest, ReorderRequestStatus, DeliveryProof, BomLine, PurchaseBatchLine, SerialPair } from "@/types";
 
-const INVENTORY_CSV_HEADERS = ["sku", "name", "category", "quantityOnHand", "reorderLevel", "unitCost", "unitPrice", "supplier"];
+const INVENTORY_CSV_HEADERS = ["sku", "name", "category", "brand", "quantityOnHand", "reorderLevel", "unitCost", "unitPrice", "supplier"];
 
 function isImageProof(type: string) {
   return type.startsWith("image/");
@@ -66,6 +66,7 @@ const emptyForm = {
   name: "",
   sku: "",
   category: "" as InventoryCategory,
+  brand: "",
   quantityOnHand: "",
   reorderLevel: "",
   unitCost: "",
@@ -82,6 +83,7 @@ export default function Inventory() {
   const {
     inventory,
     inventoryCategories,
+    brands,
     purchaseBatches,
     suppliers,
     addInventoryItem,
@@ -108,6 +110,7 @@ export default function Inventory() {
     () => inventoryCategories.filter((c) => c.status === "active"),
     [inventoryCategories]
   );
+  const activeBrands = useMemo(() => brands.filter((b) => b.status === "active"), [brands]);
   const batchableInventory = useMemo(
     () => inventory.filter((i) => (i.status ?? "active") === "active" && i.category !== "AC Unit"),
     [inventory]
@@ -140,6 +143,7 @@ export default function Inventory() {
         name: row.name,
         sku: row.sku,
         category: row.category,
+        brand: row.brand || undefined,
         quantityOnHand: Number(row.quantityOnHand) || 0,
         reorderLevel: Number(row.reorderLevel) || 0,
         unitCost: Number(row.unitCost) || 0,
@@ -167,6 +171,7 @@ export default function Inventory() {
   const [lowStockOnly, setLowStockOnly] = useState(false);
   const [statusFilter, setStatusFilter] = useState<(typeof statusFilters)[number]>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [brandFilter, setBrandFilter] = useState<string>("all");
   const [open, setOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<InventoryItem | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -389,16 +394,17 @@ export default function Inventory() {
     const q = query.toLowerCase().trim();
     return inventory.filter((i) => {
       const matchesCategory = categoryFilter === "all" || i.category === categoryFilter;
+      const matchesBrand = brandFilter === "all" || i.brand === brandFilter;
       const matchesQuery = !q || i.name.toLowerCase().includes(q) || i.sku.toLowerCase().includes(q) || i.supplier.toLowerCase().includes(q);
       const matchesLowStock = !lowStockOnly || i.quantityOnHand <= i.reorderLevel;
       const matchesStatus = statusFilter === "all" || (i.status ?? "active") === statusFilter;
-      return matchesCategory && matchesQuery && matchesLowStock && matchesStatus;
+      return matchesCategory && matchesBrand && matchesQuery && matchesLowStock && matchesStatus;
     });
-  }, [inventory, categoryFilter, query, lowStockOnly, statusFilter]);
+  }, [inventory, categoryFilter, brandFilter, query, lowStockOnly, statusFilter]);
 
   const { page, setPage, pageSize, setPageSize, pageItems, total } = usePagination(filtered, 10);
   const activeFilterCount =
-    (categoryFilter !== "all" ? 1 : 0) + (statusFilter !== "all" ? 1 : 0) + (lowStockOnly ? 1 : 0);
+    (categoryFilter !== "all" ? 1 : 0) + (brandFilter !== "all" ? 1 : 0) + (statusFilter !== "all" ? 1 : 0) + (lowStockOnly ? 1 : 0);
   const hasActiveFilters = query.trim() !== "" || activeFilterCount > 0;
 
   function clearFilters() {
@@ -406,6 +412,7 @@ export default function Inventory() {
     setLowStockOnly(false);
     setStatusFilter("all");
     setCategoryFilter("all");
+    setBrandFilter("all");
   }
 
   function openAdd() {
@@ -420,6 +427,7 @@ export default function Inventory() {
       name: item.name,
       sku: item.sku,
       category: item.category,
+      brand: item.brand ?? "",
       quantityOnHand: String(item.quantityOnHand),
       reorderLevel: String(item.reorderLevel),
       unitCost: String(item.unitCost),
@@ -431,6 +439,12 @@ export default function Inventory() {
   }
 
   const selectedFormCategory = inventoryCategories.find((c) => c.name === form.category);
+  // When a supplier is selected, prioritize the brands it carries; otherwise offer every active brand.
+  const formBrandOptions = useMemo(() => {
+    const supplier = suppliers.find((s) => s.name === form.supplier);
+    if (supplier?.brands && supplier.brands.length > 0) return supplier.brands;
+    return activeBrands.map((b) => b.name);
+  }, [suppliers, form.supplier, activeBrands]);
   const bomEligibleItems = useMemo(
     () => inventory.filter((i) => (i.status ?? "active") === "active" && i.id !== editTarget?.id),
     [inventory, editTarget]
@@ -456,6 +470,7 @@ export default function Inventory() {
       name: form.name,
       sku: form.sku,
       category: form.category,
+      brand: form.brand || undefined,
       quantityOnHand: Number(form.quantityOnHand) || 0,
       reorderLevel: Number(form.reorderLevel) || 0,
       unitCost: Number(form.unitCost) || 0,
@@ -570,6 +585,23 @@ export default function Inventory() {
                     </Select>
                   </div>
                 </div>
+                <div className="space-y-1.5">
+                  <Label>Brand</Label>
+                  <Select
+                    value={form.brand || undefined}
+                    onValueChange={(v) => setForm({ ...form, brand: v })}
+                    disabled={formBrandOptions.length === 0}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={formBrandOptions.length === 0 ? "Add a brand first" : "Select a brand"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {formBrandOptions.map((name) => (
+                        <SelectItem key={name} value={name}>{name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   {editTarget ? (
                     <div className="space-y-1.5">
@@ -604,7 +636,11 @@ export default function Inventory() {
                   <Label>Supplier</Label>
                   <Select
                     value={form.supplier || undefined}
-                    onValueChange={(v) => setForm({ ...form, supplier: v })}
+                    onValueChange={(v) => {
+                      const nextBrandOptions = suppliers.find((s) => s.name === v)?.brands;
+                      const brandStillValid = !nextBrandOptions || nextBrandOptions.length === 0 || nextBrandOptions.includes(form.brand);
+                      setForm({ ...form, supplier: v, brand: brandStillValid ? form.brand : "" });
+                    }}
                     disabled={supplierOptions.length === 0}
                   >
                     <SelectTrigger>
@@ -677,7 +713,7 @@ export default function Inventory() {
         title="Import inventory items"
         description="Category values must match an existing active category name exactly."
         templateHeaders={INVENTORY_CSV_HEADERS}
-        templateSampleRow={["MAT-EXAMPLE-01", "Example Copper Fitting", "Material", "50", "20", "150", "220", "Laguna Pipe & Fitting Supply"]}
+        templateSampleRow={["MAT-EXAMPLE-01", "Example Copper Fitting", "Material", "", "50", "20", "150", "220", "Laguna Pipe & Fitting Supply"]}
         templateFilename="inventory-import-template.csv"
         onImport={handleInventoryImport}
       />
@@ -722,6 +758,20 @@ export default function Inventory() {
                 </Select>
               </div>
               <div className="space-y-1.5">
+                <Label className="text-xs">Brand</Label>
+                <Select value={brandFilter} onValueChange={setBrandFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Brand" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All brands</SelectItem>
+                    {activeBrands.map((b) => (
+                      <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
                 <Label className="text-xs">Status</Label>
                 <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
                   <SelectTrigger className="w-full">
@@ -759,7 +809,7 @@ export default function Inventory() {
                 <EmptyState icon={Boxes} title="No items match your filters" description="Try a different search term or clear filters." />
               ) : (
                 <Card>
-                  <FilterTransition filterKey={`${query}-${categoryFilter}-${statusFilter}-${lowStockOnly}-${page}`}>
+                  <FilterTransition filterKey={`${query}-${categoryFilter}-${brandFilter}-${statusFilter}-${lowStockOnly}-${page}`}>
                   <MobileList>
                     {pageItems.map((item) => {
                       const low = item.quantityOnHand <= item.reorderLevel;
@@ -773,6 +823,7 @@ export default function Inventory() {
                             </div>
                             <Badge variant="secondary">{item.category}</Badge>
                           </div>
+                          {item.brand && <MobileListRow label="Brand">{item.brand}</MobileListRow>}
                           <MobileListRow label="Stock">
                             <div className="flex items-center justify-end gap-1.5">
                               <span className={low ? "font-semibold text-brand-crimson-600" : "text-ink-700"}>{item.quantityOnHand}</span>
@@ -812,6 +863,7 @@ export default function Inventory() {
                       <TableRow>
                         <TableHead>Item</TableHead>
                         <TableHead>Category</TableHead>
+                        <TableHead>Brand</TableHead>
                         <TableHead>Stock</TableHead>
                         <TableHead>Unit Price</TableHead>
                         <TableHead>Supplier</TableHead>
@@ -830,6 +882,7 @@ export default function Inventory() {
                               <p className="font-mono-data text-xs text-ink-400">{item.sku}</p>
                             </TableCell>
                             <TableCell><Badge variant="secondary">{item.category}</Badge></TableCell>
+                            <TableCell className="text-sm text-ink-600">{item.brand || "—"}</TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1.5">
                                 <span className={low ? "font-semibold text-brand-crimson-600" : "text-ink-700"}>{item.quantityOnHand}</span>

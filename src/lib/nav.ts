@@ -31,7 +31,7 @@ export const navItems: NavItem[] = [
   { label: "Suppliers", to: "/suppliers", icon: Truck },
   { label: "Service Catalog", to: "/service-catalog", icon: Wrench },
   { label: "Scheduling", to: "/schedule", icon: CalendarClock },
-  { label: "Billing", to: "/billing", icon: Receipt },
+  { label: "Financial", to: "/financial", icon: Receipt },
   { label: "Reports", to: "/reports", icon: BarChart3 },
   { label: "Settings", to: "/settings", icon: Settings },
 ];

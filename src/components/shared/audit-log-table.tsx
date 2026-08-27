@@ -3,6 +3,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { EmptyState } from "@/components/shared/empty-state";
+import { Pagination } from "@/components/shared/pagination";
+import { usePagination } from "@/lib/use-pagination";
 import type { AuditAction, AuditLogEntry } from "@/types";
 
 const actionVariant: Record<AuditAction, "secondary" | "info" | "warning" | "success" | "destructive"> = {
@@ -37,6 +39,8 @@ function formatValue(v: string | number | null) {
 }
 
 export function AuditLogTable({ entries }: { entries: AuditLogEntry[] }) {
+  const { page, setPage, pageSize, setPageSize, pageItems, total } = usePagination(entries, 10);
+
   if (entries.length === 0) {
     return (
       <EmptyState
@@ -60,7 +64,7 @@ export function AuditLogTable({ entries }: { entries: AuditLogEntry[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {entries.map((entry) => (
+          {pageItems.map((entry) => (
             <TableRow key={entry.id}>
               <TableCell className="whitespace-nowrap text-sm text-ink-500">{formatTimestamp(entry.timestamp)}</TableCell>
               <TableCell className="font-medium text-ink-800">{entry.entityLabel}</TableCell>
@@ -88,6 +92,7 @@ export function AuditLogTable({ entries }: { entries: AuditLogEntry[] }) {
           ))}
         </TableBody>
       </Table>
+      <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </Card>
   );
 }

@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
 import { useParams, Navigate, Link } from "react-router-dom";
-import { ArrowLeft, ArrowUpDown, PackageSearch, Pencil, Plus, Wallet } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, PackageSearch, Paperclip, Pencil, Plus, Wallet, X } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { FilterButton } from "@/components/shared/filter-button";
+import { FileDropZone } from "@/components/shared/file-drop-zone";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/mobile-list";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -47,6 +49,11 @@ export default function BatchDetail() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [payOpen, setPayOpen] = useState(false);
   const [payAmount, setPayAmount] = useState("");
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [proofFileName, setProofFileName] = useState<string | null>(null);
+  const [paidWithoutProof, setPaidWithoutProof] = useState(false);
+  const [payNotes, setPayNotes] = useState("");
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const [lineOpen, setLineOpen] = useState(false);
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
@@ -95,13 +102,52 @@ export default function BatchDetail() {
 
   function openPayment() {
     setPayAmount("");
+    setProofUrl(null);
+    setProofFileName(null);
+    setPaidWithoutProof(false);
+    setPayNotes("");
+    setPaymentError(null);
     setPayOpen(true);
+  }
+
+  function closePayment() {
+    if (proofUrl) URL.revokeObjectURL(proofUrl);
+    setPayOpen(false);
+  }
+
+  function handleProofSelect(files: File[]) {
+    const file = files[0];
+    if (!file) return;
+    if (proofUrl) URL.revokeObjectURL(proofUrl);
+    setProofUrl(URL.createObjectURL(file));
+    setProofFileName(file.name);
+    setPaymentError(null);
+  }
+
+  function removeProof() {
+    if (proofUrl) URL.revokeObjectURL(proofUrl);
+    setProofUrl(null);
+    setProofFileName(null);
   }
 
   function handlePayment() {
     if (!batch || !payAmount) return;
-    recordBatchPayment(batch.id, Number(payAmount));
+    if (!proofUrl && !paidWithoutProof) {
+      setPaymentError("Attach proof of payment, or confirm marking this as paid without proof.");
+      return;
+    }
+    recordBatchPayment(batch.id, Number(payAmount), {
+      url: proofUrl ?? undefined,
+      fileName: proofFileName ?? undefined,
+      paidWithoutProof: !proofUrl && paidWithoutProof,
+      notes: payNotes.trim() || undefined,
+    });
     setPayAmount("");
+    setProofUrl(null);
+    setProofFileName(null);
+    setPaidWithoutProof(false);
+    setPayNotes("");
+    setPaymentError(null);
     setPayOpen(false);
   }
 
@@ -204,18 +250,65 @@ export default function BatchDetail() {
         </CardContent>
       </Card>
 
-      <Dialog open={payOpen} onOpenChange={setPayOpen}>
+      <Dialog open={payOpen} onOpenChange={(o) => !o && closePayment()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Record payment to supplier</DialogTitle>
             <DialogDescription>{batch.batchNumber} — {batch.supplier}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-1.5">
-            <Label>Amount (₱)</Label>
-            <Input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0.00" autoFocus />
+          <div className="grid gap-3">
+            <div className="space-y-1.5">
+              <Label>Amount (₱)</Label>
+              <Input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0.00" autoFocus />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Proof of payment</Label>
+              {proofUrl ? (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-ink-100 bg-ink-50/60 px-3 py-2">
+                  <div className="flex min-w-0 items-center gap-2 text-sm text-ink-700">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-ink-400" />
+                    <span className="truncate">{proofFileName}</span>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={removeProof}>
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <FileDropZone
+                  accept="image/*,.pdf"
+                  disabled={paidWithoutProof}
+                  onFilesSelected={handleProofSelect}
+                  label="Drag & drop a receipt or photo, or click to browse"
+                  hint="Image or PDF"
+                />
+              )}
+              <label className="flex cursor-pointer items-center gap-2 pt-1 text-xs text-ink-500">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400"
+                  checked={paidWithoutProof}
+                  disabled={!!proofUrl}
+                  onChange={(e) => {
+                    setPaidWithoutProof(e.target.checked);
+                    setPaymentError(null);
+                  }}
+                />
+                Confirm mark as paid without proof of payment
+              </label>
+              {paymentError && <p className="text-xs text-brand-crimson-600">{paymentError}</p>}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Notes</Label>
+              <Textarea
+                value={payNotes}
+                onChange={(e) => setPayNotes(e.target.value)}
+                placeholder="Optional notes about this payment"
+                rows={3}
+              />
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPayOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={closePayment}>Cancel</Button>
             <Button variant="brand" onClick={handlePayment}>Record Payment</Button>
           </DialogFooter>
         </DialogContent>

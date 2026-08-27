@@ -5,6 +5,7 @@ import type {
   ProjectStatus,
   InventoryItem,
   InventoryCategoryDefinition,
+  BrandDefinition,
   PurchaseBatch,
   PurchaseBatchLine,
   ScheduleJob,
@@ -29,6 +30,7 @@ import { mockClients } from "@/data/clients";
 import { mockLeads } from "@/data/leads";
 import { mockInventory } from "@/data/inventory";
 import { mockInventoryCategories } from "@/data/inventoryCategories";
+import { mockBrands } from "@/data/brands";
 import { mockPurchaseBatches } from "@/data/purchaseBatches";
 import { mockSchedule } from "@/data/schedule";
 import { mockInvoices } from "@/data/invoices";
@@ -38,6 +40,7 @@ import { mockSuppliers } from "@/data/suppliers";
 import { mockUsers } from "@/data/users";
 import { mockRoles } from "@/data/roles";
 import { mockReorderRequests } from "@/data/reorderRequests";
+import { mockAuditLog } from "@/data/auditLog";
 import { addMonthsIso } from "@/lib/utils";
 import { useNotificationStore } from "@/store/notificationStore";
 
@@ -91,6 +94,7 @@ interface CrmState {
   leads: Lead[];
   inventory: InventoryItem[];
   inventoryCategories: InventoryCategoryDefinition[];
+  brands: BrandDefinition[];
   purchaseBatches: PurchaseBatch[];
   schedule: ScheduleJob[];
   invoices: Invoice[];
@@ -126,7 +130,7 @@ interface CrmState {
   addServiceRecordToUnit: (
     clientId: string,
     unitId: string,
-    record: { type: Unit["serviceHistory"][number]["type"]; technicianId: string; notes: string }
+    record: { type: Unit["serviceHistory"][number]["type"]; technicianId: string; notes: string; photos?: string[] }
   ) => void;
 
   // Inventory
@@ -144,11 +148,17 @@ interface CrmState {
   archiveInventoryCategory: (id: string) => boolean;
   restoreInventoryCategory: (id: string) => void;
 
+  // Brands
+  addBrand: (input: { name: string }) => string;
+  updateBrand: (id: string, updates: Partial<Pick<BrandDefinition, "name">>) => void;
+  archiveBrand: (id: string) => boolean;
+  restoreBrand: (id: string) => void;
+
   // Purchase Batches
   addPurchaseBatch: (input: { supplier: string; lines: Omit<PurchaseBatchLine, "id">[] }) => string;
   receivePurchaseBatch: (id: string) => void;
   cancelPurchaseBatch: (id: string) => void;
-  recordBatchPayment: (id: string, amount: number) => void;
+  recordBatchPayment: (id: string, amount: number, proof?: { url?: string; fileName?: string; paidWithoutProof?: boolean; notes?: string }) => void;
   addBatchLine: (batchId: string, line: Omit<PurchaseBatchLine, "id">) => void;
   updateBatchLine: (batchId: string, lineId: string, updates: Partial<Omit<PurchaseBatchLine, "id">>) => void;
 
@@ -191,7 +201,7 @@ interface CrmState {
   deleteJob: (jobId: string) => void;
   claimJob: (jobId: string, technicianId: string) => boolean;
 
-  // Billing
+  // Financial
   addInvoice: (invoice: Omit<Invoice, "id" | "invoiceNumber"> & { invoiceNumber?: string }) => void;
   recordPayment: (invoiceId: string, amount: number, proof?: { url?: string; fileName?: string; paidWithoutProof?: boolean }) => void;
   setInvoiceNumberFormat: (format: string) => void;
@@ -213,6 +223,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   leads: mockLeads,
   inventory: mockInventory,
   inventoryCategories: mockInventoryCategories,
+  brands: mockBrands,
   purchaseBatches: mockPurchaseBatches,
   schedule: mockSchedule,
   invoices: mockInvoices,
@@ -222,7 +233,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   suppliers: mockSuppliers,
   users: mockUsers,
   roles: mockRoles,
-  auditLog: [],
+  auditLog: mockAuditLog,
   reorderRequests: mockReorderRequests,
 
   logAudit: (entry) => {
@@ -529,6 +540,43 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     get().logAudit({ module: "inventoryCategory", entityId: id, entityLabel: category.name, action: "restore", changes: [], actor: "You" });
   },
 
+  addBrand: ({ name }) => {
+    const id = nextId("brand");
+    const newBrand: BrandDefinition = { id, name, status: "active" };
+    set((s) => ({ brands: [...s.brands, newBrand] }));
+    get().logAudit({ module: "brand", entityId: id, entityLabel: name, action: "create", changes: [], actor: "You" });
+    return id;
+  },
+
+  updateBrand: (id, updates) => {
+    const before = get().brands.find((b) => b.id === id);
+    set((s) => ({ brands: s.brands.map((b) => (b.id === id ? { ...b, ...updates } : b)) }));
+    const after = get().brands.find((b) => b.id === id);
+    if (before && after) {
+      const changes = computeFieldDiff(before, after, ["name"]);
+      get().logAudit({ module: "brand", entityId: id, entityLabel: after.name, action: "update", changes, actor: "You" });
+    }
+  },
+
+  // Archiving is blocked while any non-archived inventory item still uses this
+  // brand, so items can't silently lose their brand.
+  archiveBrand: (id) => {
+    const brand = get().brands.find((b) => b.id === id);
+    if (!brand) return false;
+    const inUse = get().inventory.some((i) => i.brand === brand.name && i.status !== "archived");
+    if (inUse) return false;
+    set((s) => ({ brands: s.brands.map((b) => (b.id === id ? { ...b, status: "archived" } : b)) }));
+    get().logAudit({ module: "brand", entityId: id, entityLabel: brand.name, action: "archive", changes: [], actor: "You" });
+    return true;
+  },
+
+  restoreBrand: (id) => {
+    const brand = get().brands.find((b) => b.id === id);
+    if (!brand) return;
+    set((s) => ({ brands: s.brands.map((b) => (b.id === id ? { ...b, status: "active" } : b)) }));
+    get().logAudit({ module: "brand", entityId: id, entityLabel: brand.name, action: "restore", changes: [], actor: "You" });
+  },
+
   addPurchaseBatch: ({ supplier, lines }) => {
     const id = nextId("batch");
     const seq = get().purchaseBatches.length + 1;
@@ -637,12 +685,25 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     }
   },
 
-  recordBatchPayment: (id, amount) => {
+  recordBatchPayment: (id, amount, proof) => {
     const batch = get().purchaseBatches.find((b) => b.id === id);
     if (!batch || amount <= 0) return;
     const newAmountPaid = batch.amountPaid + amount;
+    const paymentRecord: PaymentRecord = {
+      id: nextId("pay"),
+      date: new Date().toISOString(),
+      amount,
+      proofUrl: proof?.url,
+      proofFileName: proof?.fileName,
+      paidWithoutProof: proof?.paidWithoutProof,
+      notes: proof?.notes,
+    };
     set((s) => ({
-      purchaseBatches: s.purchaseBatches.map((b) => (b.id === id ? { ...b, amountPaid: newAmountPaid } : b)),
+      purchaseBatches: s.purchaseBatches.map((b) =>
+        b.id === id
+          ? { ...b, amountPaid: newAmountPaid, payments: [...(b.payments ?? []), paymentRecord] }
+          : b
+      ),
     }));
     get().logAudit({
       module: "purchaseBatch",
@@ -1003,7 +1064,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     get().logAudit({ module: "schedule", entityId: jobId, entityLabel: job.title, action: "update", changes, actor: "You" });
 
     // Post-installation automation: an Installation job marked Installed triggers
-    // billing, warranty start, and the next PMS visit in one connected flow.
+    // financial, warranty start, and the next PMS visit in one connected flow.
     if (status === "installed" && job.type === "Installation") {
       const today = new Date().toISOString().slice(0, 10);
       const warrantyExpiresOn = addMonthsIso(job.date, INSTALLATION_WARRANTY_MONTHS);

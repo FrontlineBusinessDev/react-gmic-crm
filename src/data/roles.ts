@@ -5,7 +5,7 @@ export const mockRoles: RoleDefinition[] = [
     id: "admin",
     label: "Administrator",
     description: "Full visibility and access across all modules.",
-    modules: ["/", "/clients", "/leads", "/product", "/suppliers", "/service-catalog", "/schedule", "/billing", "/reports", "/settings"],
+    modules: ["/", "/clients", "/leads", "/product", "/suppliers", "/service-catalog", "/schedule", "/financial", "/reports", "/settings"],
     status: "active",
   },
   {

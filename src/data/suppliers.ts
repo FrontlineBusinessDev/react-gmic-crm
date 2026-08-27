@@ -10,6 +10,7 @@ export const mockSuppliers: Supplier[] = [
     address: "Carrier Bldg., 8th Ave., BGC, Taguig City",
     notes: "Primary distributor for Carrier AC units. Net 30 terms.",
     status: "active",
+    brands: ["Carrier"],
   },
   {
     id: "sup-002",
@@ -20,6 +21,7 @@ export const mockSuppliers: Supplier[] = [
     address: "6750 Ayala Ave., Makati City",
     notes: "Requires PO 5 business days before delivery.",
     status: "active",
+    brands: ["LG"],
   },
   {
     id: "sup-003",
@@ -29,6 +31,7 @@ export const mockSuppliers: Supplier[] = [
     email: "joseph.tan@daikin.com.ph",
     address: "Km. 21 East Service Rd., Muntinlupa City",
     status: "active",
+    brands: ["Daikin"],
   },
   {
     id: "sup-004",
@@ -38,6 +41,7 @@ export const mockSuppliers: Supplier[] = [
     email: "rowena.delacruz@ph.panasonic.com",
     address: "Marikina City",
     status: "active",
+    brands: ["Panasonic"],
   },
   {
     id: "sup-005",
@@ -77,5 +81,16 @@ export const mockSuppliers: Supplier[] = [
     address: "Governor's Dr., Sta. Rosa, Laguna",
     notes: "Discontinued as of 2026 — switched to Laguna Pipe & Fitting Supply for brackets.",
     status: "archived",
+  },
+  {
+    id: "sup-009",
+    name: "Midea Philippines",
+    contactPerson: "Kevin Ong",
+    phone: "+63 917 664 2201",
+    email: "kevin.ong@mideaph.com",
+    address: "Filinvest Corporate City, Alabang, Muntinlupa City",
+    notes: "New AC unit line added 2026 — competitive pricing on 1.5HP inverter models.",
+    status: "active",
+    brands: ["Midea"],
   },
 ];

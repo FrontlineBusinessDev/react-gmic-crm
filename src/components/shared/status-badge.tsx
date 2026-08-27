@@ -10,7 +10,7 @@ const projectStatusMap: Record<ProjectStatus, { label: string; variant: "seconda
   "Project Lost": { label: "Project Lost", variant: "destructive" },
   "Phase 1 Installation": { label: "Phase 1 Installation", variant: "info" },
   "Phase 2 Installation": { label: "Phase 2 Installation", variant: "info" },
-  "Billing": { label: "Billing", variant: "warning" },
+  "Financial": { label: "Financial", variant: "warning" },
   "Collection": { label: "Collection", variant: "destructive" },
   "PMS": { label: "PMS", variant: "success" },
 };

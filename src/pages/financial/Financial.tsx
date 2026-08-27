@@ -36,7 +36,7 @@ import { exportInvoicePdf } from "@/lib/invoice-pdf";
 import type { Invoice, InvoiceStatus, PaymentRecord } from "@/types";
 
 const statusFilters: (InvoiceStatus | "all")[] = ["all", "unpaid", "partial", "paid", "overdue"];
-const BILLING_CSV_HEADERS = ["invoiceNumber", "clientId", "issueDate", "dueDate", "description", "qty", "unitPrice"];
+const FINANCIAL_CSV_HEADERS = ["invoiceNumber", "clientId", "issueDate", "dueDate", "description", "qty", "unitPrice"];
 
 function isImageFileName(name?: string) {
   if (!name) return true;
@@ -68,7 +68,7 @@ function formatInvoiceNumberPreview(format: string) {
     .replace(/{seq}/g, "001");
 }
 
-export default function Billing() {
+export default function Financial() {
   const {
     invoices,
     clients,
@@ -109,7 +109,7 @@ export default function Billing() {
   const [status, setStatus] = useState<(typeof statusFilters)[number]>("all");
   const [importOpen, setImportOpen] = useState(false);
 
-  function handleBillingImport(rows: Record<string, string>[]) {
+  function handleFinancialImport(rows: Record<string, string>[]) {
     const errors: string[] = [];
     let successCount = 0;
     const groups = new Map<string, Record<string, string>[]>();
@@ -149,7 +149,7 @@ export default function Billing() {
     return { successCount, errors };
   }
   const [searchParams, setSearchParams] = useSearchParams();
-  // Deep-link support: /billing?q=<invoice#> (e.g. from the global search) prefills the search box.
+  // Deep-link support: /financial?q=<invoice#> (e.g. from the global search) prefills the search box.
   const consumedQueryParam = useRef<string | null>(null);
   useEffect(() => {
     const q = searchParams.get("q");
@@ -351,7 +351,7 @@ export default function Billing() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Billing & Invoicing"
+        title="Financial & Invoicing"
         description="Track payments and client balances."
         actions={
           <div className="flex items-center gap-2">
@@ -538,10 +538,10 @@ export default function Billing() {
         onOpenChange={setImportOpen}
         title="Import invoices"
         description="Rows sharing the same invoiceNumber become line items on one invoice."
-        templateHeaders={BILLING_CSV_HEADERS}
+        templateHeaders={FINANCIAL_CSV_HEADERS}
         templateSampleRow={["INV-EXAMPLE-001", "c-001", "2026-08-19", "2026-09-18", "PMS Cleaning — Split Unit", "1", "1200"]}
-        templateFilename="billing-import-template.csv"
-        onImport={handleBillingImport}
+        templateFilename="financial-import-template.csv"
+        onImport={handleFinancialImport}
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">

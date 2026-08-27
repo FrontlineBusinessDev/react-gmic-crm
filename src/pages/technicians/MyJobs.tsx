@@ -1087,7 +1087,7 @@ export default function MyJobs() {
                       Invoice {installOutcome.invoiceNumber} created
                     </p>
                     <p className="text-xs text-ink-500">
-                      Billing has been notified to follow up on payment.
+                      The Financial team has been notified to follow up on payment.
                     </p>
                   </div>
                 </div>

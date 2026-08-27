@@ -703,7 +703,10 @@ export default function Schedule() {
               onValueChange={(v) => {
                 const next = v as typeof view;
                 if ((next === "week" || next === "day") && view === "month") {
-                  setAnchorDate(anchorMonth);
+                  // Land on today if it falls within the month currently shown, so the switch
+                  // doesn't drop the technician onto an empty week at the start of the month.
+                  const today = new Date();
+                  setAnchorDate(isSameMonth(today, anchorMonth) ? today : anchorMonth);
                 }
                 setView(next);
               }}

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/app-layout";
 import { ProtectedRoute } from "@/components/layout/protected-route";
 import Login from "@/pages/Login";
@@ -13,7 +13,7 @@ import ServiceCatalog from "@/pages/service-catalog/ServiceCatalog";
 import Schedule from "@/pages/technicians/Schedule";
 import MyJobs from "@/pages/technicians/MyJobs";
 import Parts from "@/pages/technicians/Parts";
-import Billing from "@/pages/billing/Billing";
+import Financial from "@/pages/financial/Financial";
 import Reports from "@/pages/reports/Reports";
 import Settings from "@/pages/settings/Settings";
 
@@ -119,13 +119,14 @@ export default function App() {
             }
           />
           <Route
-            path="/billing"
+            path="/financial"
             element={
-              <ProtectedRoute module="/billing">
-                <Billing />
+              <ProtectedRoute module="/financial">
+                <Financial />
               </ProtectedRoute>
             }
           />
+          <Route path="/billing" element={<Navigate to="/financial" replace />} />
           <Route
             path="/reports"
             element={

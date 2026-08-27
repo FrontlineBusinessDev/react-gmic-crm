@@ -515,7 +515,7 @@ export default function Settings() {
 
         {/* ---------------- Roles tab ---------------- */}
         <TabsContent value="roles" className="space-y-6">
-          <div className="flex items-center justify-end">
+          <div className="flex items-center justify-end mb-4">
             <Button variant="brand" onClick={openAddRole}>
               <Plus className="h-4 w-4" /> Add Role
             </Button>

@@ -55,7 +55,7 @@ const projectStatusFilters: (ProjectStatus | "all")[] = [
   "Project Lost",
   "Phase 1 Installation",
   "Phase 2 Installation",
-  "Billing",
+  "Financial",
   "Collection",
   "PMS",
 ];
@@ -66,6 +66,7 @@ function emptyUnitDraft(): UnitDraft {
     serialIndoor: "",
     serialOutdoor: "",
     model: "",
+    brand: "",
     type: "Split Type",
     horsePower: "1.5 HP",
     installDate: new Date().toISOString().slice(0, 10),
@@ -82,6 +83,7 @@ function unitDraftFromExisting(unit: Unit): UnitDraft {
     serialIndoor: unit.serialIndoor,
     serialOutdoor: unit.serialOutdoor,
     model: unit.model,
+    brand: unit.brand ?? "",
     type: unit.type,
     horsePower: unit.horsePower,
     installDate: unit.installDate,
@@ -109,7 +111,7 @@ const sortOptions: { key: ClientSortBy; label: string }[] = [
 
 export default function ClientsList() {
   const navigate = useNavigate();
-  const { clients, addClient, updateClient, archiveClient, restoreClient, auditLog } = useCrmStore();
+  const { clients, addClient, updateClient, archiveClient, restoreClient, auditLog, brands } = useCrmStore();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<(typeof statusFilters)[number]>("all");
   const [projectStatus, setProjectStatus] = useState<(typeof projectStatusFilters)[number]>("all");
@@ -124,6 +126,8 @@ export default function ClientsList() {
   const [importOpen, setImportOpen] = useState(false);
   const [unitTab, setUnitTab] = useState<"new" | "existing">("new");
   const [existingUnitId, setExistingUnitId] = useState("");
+
+  const activeBrands = useMemo(() => brands.filter((b) => b.status === "active"), [brands]);
 
   const allExistingUnits = useMemo(
     () =>
@@ -232,13 +236,13 @@ export default function ClientsList() {
   }
 
   function addUnitDraft() {
-    setForm((f) => ({ ...f, units: [emptyUnitDraft()] }));
+    setForm((f) => ({ ...f, units: [...f.units, emptyUnitDraft()] }));
   }
 
   function addExistingUnitDraft(compositeId: string) {
     const found = allExistingUnits.find((e) => e.key === compositeId);
     if (!found) return;
-    setForm((f) => ({ ...f, units: [unitDraftFromExisting(found.unit)] }));
+    setForm((f) => ({ ...f, units: [...f.units, unitDraftFromExisting(found.unit)] }));
     setExistingUnitId("");
   }
 
@@ -355,7 +359,7 @@ export default function ClientsList() {
                 {!editTarget && (
                   <div className="space-y-1.5 rounded-lg border border-ink-100 bg-ink-50/60 p-3">
                     <Label>Units (optional)</Label>
-                    <p className="text-xs text-ink-400">You can add one unit now, or skip this and add more later from the client's profile.</p>
+                    <p className="text-xs text-ink-400">Add as many units as needed now, or skip this and add more later from the client's profile.</p>
                     <div className="flex gap-2">
                       <Button
                         type="button"
@@ -377,7 +381,6 @@ export default function ClientsList() {
                         onClick={() => {
                           setUnitTab("existing");
                           setExistingUnitId("");
-                          setForm((f) => ({ ...f, units: [] }));
                         }}
                       >
                         Add Existing
@@ -423,6 +426,23 @@ export default function ClientsList() {
                               <Button type="button" size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-ink-400" onClick={() => removeUnitDraft(unit.key)}>
                                 <X className="h-3.5 w-3.5" />
                               </Button>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Brand</Label>
+                              <Select
+                                value={unit.brand || undefined}
+                                onValueChange={(v) => updateUnitDraft(unit.key, { brand: v })}
+                                disabled={activeBrands.length === 0}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder={activeBrands.length === 0 ? "No brands yet" : "Select a brand"} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {activeBrands.map((b) => (
+                                    <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                               <div className="space-y-1">
@@ -484,6 +504,9 @@ export default function ClientsList() {
                             </div>
                           </div>
                         ))}
+                        <Button type="button" size="sm" variant="outline" className="w-full" onClick={addUnitDraft}>
+                          <Plus className="h-3.5 w-3.5" /> Add another unit
+                        </Button>
                       </div>
                     )}
                   </div>

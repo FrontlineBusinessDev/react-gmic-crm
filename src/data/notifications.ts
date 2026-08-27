@@ -89,4 +89,24 @@ export const mockNotifications: NotificationItem[] = [
     read: false,
     targetRoles: ["admin", "technician"],
   },
+
+  {
+    id: "n-16",
+    type: "payment",
+    title: "Invoice overdue",
+    message: "Invoice GMIC-2026-041 for Rosalinda Fuentes is 40+ days overdue",
+    timestamp: "2026-08-17T08:00:00",
+    read: false,
+    targetRoles: ["admin"],
+  },
+  {
+    id: "n-17",
+    type: "schedule",
+    title: "Job update",
+    message: "PMS Cleaning for Vicente & Norma Manalo was cancelled — client traveling",
+    timestamp: "2026-08-14T09:05:00",
+    read: true,
+    targetRoles: ["technician"],
+    userId: "u-tech",
+  },
 ];

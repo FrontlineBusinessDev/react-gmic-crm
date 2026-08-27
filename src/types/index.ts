@@ -39,6 +39,7 @@ export interface Unit {
   serialIndoor: string;
   serialOutdoor: string;
   model: string;
+  brand?: string; // matches BrandDefinition.name
   type: "Window Type" | "Split Type" | "Cassette" | "Floor Standing" | "Package AC";
   horsePower: string;
   installDate: string;
@@ -56,6 +57,7 @@ export interface ServiceRecord {
   type: string;
   technicianId: string;
   notes: string;
+  photos?: string[];
 }
 
 export type ClientStatus = "active" | "lead" | "inactive" | "archived";
@@ -75,7 +77,7 @@ export type ProjectStatus =
   | "Project Lost"
   | "Phase 1 Installation"
   | "Phase 2 Installation"
-  | "Billing"
+  | "Financial"
   | "Collection"
   | "PMS";
 
@@ -151,11 +153,23 @@ export interface BomLine {
   quantityPerUnit: number;
 }
 
+// Brand is a free-form id resolved against BrandDefinition[] at runtime — same
+// "managed list" convention as InventoryCategory, so brands can be added/renamed/
+// archived from a dialog without touching this type.
+export type BrandStatus = "active" | "archived";
+
+export interface BrandDefinition {
+  id: string;
+  name: string;
+  status: BrandStatus;
+}
+
 export interface InventoryItem {
   id: string;
   sku: string;
   name: string;
   category: InventoryCategory;
+  brand?: string; // matches BrandDefinition.name
   quantityOnHand: number;
   reorderLevel: number;
   unitCost: number;
@@ -177,6 +191,7 @@ export interface Supplier {
   address: string;
   notes?: string;
   status?: SupplierStatus;
+  brands?: string[]; // names of brands this supplier carries, matches BrandDefinition.name
 }
 
 export interface SerializedStockUnit {
@@ -271,7 +286,7 @@ export interface ScheduleJob {
   cancellationReason?: string;
 }
 
-// ---------- Billing ----------
+// ---------- Financial ----------
 
 export type InvoiceStatus = "paid" | "partial" | "unpaid" | "overdue";
 
@@ -291,6 +306,7 @@ export interface PaymentRecord {
   proofUrl?: string;
   proofFileName?: string;
   paidWithoutProof?: boolean;
+  notes?: string;
 }
 
 export interface Invoice {
@@ -364,6 +380,7 @@ export interface PurchaseBatch {
   createdAt: string;
   createdBy: string;
   receivedAt?: string;
+  payments?: PaymentRecord[];
 }
 
 // ---------- Audit trail ----------
@@ -373,6 +390,7 @@ export type AuditModule =
   | "client"
   | "inventory"
   | "inventoryCategory"
+  | "brand"
   | "purchaseBatch"
   | "serviceCatalog"
   | "invoice"

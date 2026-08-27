@@ -37,4 +37,11 @@ export const mockServiceCatalog: ServiceCatalogItem[] = [
     description: "Routine check-up of unit condition, refrigerant levels, and electrical components to catch issues before they escalate.",
     samplePrice: 500,
   },
+  {
+    id: "svc-007",
+    name: "Duct Cleaning (Legacy)",
+    description: "Ductwork cleaning service offered for central AC systems — discontinued after GMIC narrowed focus to split/cassette units.",
+    samplePrice: 3500,
+    status: "archived",
+  },
 ];

@@ -2,7 +2,7 @@
 
 ## What this is
 
-A frontend-only, functional demo of **GMIC CARES+**, a CRM built for an air-conditioning sales & service business. It's a **field-service CRM**: alongside the usual client/leads/billing modules, it tracks individually serialized AC units per client, service history per unit (cleaning, repair, warranty claims, inspections), technician job scheduling, and parts/inventory — the workflow of a company that sells, installs, and maintains equipment rather than a generic sales-pipeline CRM.
+A frontend-only, functional demo of **GMIC CARES+**, a CRM built for an air-conditioning sales & service business. It's a **field-service CRM**: alongside the usual client/leads/financial modules, it tracks individually serialized AC units per client, service history per unit (cleaning, repair, warranty claims, inspections), technician job scheduling, and parts/inventory — the workflow of a company that sells, installs, and maintains equipment rather than a generic sales-pipeline CRM.
 
 This build was made for client review before backend development begins. There is **no backend and no persistence** — all data lives in memory (Zustand stores seeded from mock data in `src/data/`), and a full page refresh resets everything to the seed state by design.
 
@@ -51,7 +51,7 @@ Use the quick-login buttons on the sign-in screen, or sign in manually:
 - **Inventory** — AC units (serialized), materials, and spare parts, with low-stock indicators and a manual "deduct on sale" action per unit.
 - **Technician Scheduling** — day-grouped job calendar, assign technicians, mark jobs complete.
 - **My Jobs (Technician role)** — restricted job list/detail with survey report access but no client contact/pricing.
-- **Billing** — manual invoice creation, payment recording, running client balances.
+- **Financial** — manual invoice creation, payment recording, running client balances.
 
 ## Next step
 
