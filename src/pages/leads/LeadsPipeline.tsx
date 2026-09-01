@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/mobile-list";
@@ -124,34 +125,15 @@ export default function LeadsPipeline() {
   const [form, setForm] = useState(emptyLeadForm);
   const [leadType, setLeadType] = useState<"new" | "existing">("new");
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  const [clientQuery, setClientQuery] = useState("");
-  const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
-
-  const filteredClients = useMemo(() => {
-    const q = clientQuery.toLowerCase().trim();
-    if (!q) return clients.slice(0, 8);
-    return clients
-      .filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) ||
-          c.phone.toLowerCase().includes(q) ||
-          c.email.toLowerCase().includes(q)
-      )
-      .slice(0, 8);
-  }, [clients, clientQuery]);
 
   function resetLeadForm() {
     setForm(emptyLeadForm);
     setLeadType("new");
     setSelectedClientId(null);
-    setClientQuery("");
-    setClientDropdownOpen(false);
   }
 
   function selectExistingClient(client: Client) {
     setSelectedClientId(client.id);
-    setClientQuery(client.name);
-    setClientDropdownOpen(false);
     setForm({ ...form, clientName: client.name, phone: client.phone, email: client.email, address: client.address });
   }
 
@@ -255,7 +237,6 @@ export default function LeadsPipeline() {
                   setLeadType(v as typeof leadType);
                   setForm(emptyLeadForm);
                   setSelectedClientId(null);
-                  setClientQuery("");
                 }}
               >
                 <TabsList>
@@ -268,41 +249,16 @@ export default function LeadsPipeline() {
                 {leadType === "existing" ? (
                   <div className="space-y-1.5">
                     <Label>Client</Label>
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
-                      <Input
-                        className="pl-9"
-                        placeholder="Search clients by name, phone, or email..."
-                        value={clientQuery}
-                        onChange={(e) => {
-                          setClientQuery(e.target.value);
-                          setSelectedClientId(null);
-                          setClientDropdownOpen(true);
-                        }}
-                        onFocus={() => setClientDropdownOpen(true)}
-                        onBlur={() => setTimeout(() => setClientDropdownOpen(false), 150)}
-                      />
-                      {clientDropdownOpen && (
-                        <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-ink-100 bg-white p-1 shadow-md">
-                          {filteredClients.length === 0 ? (
-                            <p className="px-3 py-2 text-xs text-ink-400">No clients found.</p>
-                          ) : (
-                            filteredClients.map((c) => (
-                              <button
-                                key={c.id}
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => selectExistingClient(c)}
-                                className="flex w-full flex-col items-start rounded-sm px-3 py-1.5 text-left text-sm hover:bg-brand-blue-50"
-                              >
-                                <span className="font-medium text-ink-800">{c.name}</span>
-                                <span className="text-xs text-ink-400">{c.phone}{c.email ? ` · ${c.email}` : ""}</span>
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    <Combobox
+                      value={selectedClientId ?? ""}
+                      onChange={(v) => {
+                        const client = clients.find((c) => c.id === v);
+                        if (client) selectExistingClient(client);
+                      }}
+                      placeholder="Search clients by name, phone, or email..."
+                      searchPlaceholder="Search clients..."
+                      options={clients.map((c) => ({ value: c.id, label: c.name, sublabel: c.email ? `${c.phone} · ${c.email}` : c.phone }))}
+                    />
                     {selectedClientId && (
                       <p className="text-xs text-brand-green-600">Contact details filled in from this client's profile.</p>
                     )}

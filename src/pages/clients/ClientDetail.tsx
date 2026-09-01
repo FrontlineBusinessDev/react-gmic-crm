@@ -34,6 +34,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -187,6 +188,7 @@ export default function ClientDetail() {
     location: "",
     warrantyMonths: 24,
   });
+  const [linkedBrand, setLinkedBrand] = useState("");
   const [linkedItemId, setLinkedItemId] = useState("");
   const [linkedSerialId, setLinkedSerialId] = useState("");
   const [unitQuery, setUnitQuery] = useState("");
@@ -286,6 +288,8 @@ export default function ClientDetail() {
       inventoryCategories.find((c) => c.name === i.category)?.tracksSerials &&
       i.serializedUnits?.some((su) => su.status === "in_stock"),
   );
+  const linkableBrands = Array.from(new Set(acUnitItems.map((i) => i.brand).filter(Boolean))) as string[];
+  const brandFilteredAcUnitItems = linkedBrand ? acUnitItems.filter((i) => i.brand === linkedBrand) : acUnitItems;
   const linkedItem = inventory.find((i) => i.id === linkedItemId);
   const availableSerials = linkedItem?.serializedUnits?.filter((su) => su.status === "in_stock") ?? [];
   const linkedSerial = availableSerials.find((su) => su.id === linkedSerialId);
@@ -448,11 +452,12 @@ export default function ClientDetail() {
               </DialogHeader>
               <div className="grid gap-3">
                 <div className="space-y-1.5">
-                  <Label>Link to inventory (optional)</Label>
+                  <Label>Brand (optional)</Label>
                   <Select
-                    value={linkedItemId || "none"}
+                    value={linkedBrand || "all"}
                     onValueChange={(v) => {
-                      setLinkedItemId(v === "none" ? "" : v);
+                      setLinkedBrand(v === "all" ? "" : v);
+                      setLinkedItemId("");
                       setLinkedSerialId("");
                     }}
                   >
@@ -460,29 +465,38 @@ export default function ClientDetail() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">— Enter manually —</SelectItem>
-                      {acUnitItems.map((i) => (
-                        <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                      <SelectItem value="all">All brands</SelectItem>
+                      {linkableBrands.map((b) => (
+                        <SelectItem key={b} value={b}>{b}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
+                <div className="space-y-1.5">
+                  <Label>Link to inventory (optional)</Label>
+                  <Combobox
+                    value={linkedItemId}
+                    onChange={(v) => {
+                      setLinkedItemId(v);
+                      setLinkedSerialId("");
+                    }}
+                    placeholder="— Enter manually —"
+                    searchPlaceholder="Search by model..."
+                    options={brandFilteredAcUnitItems.map((i) => ({ value: i.id, label: i.name, sublabel: i.brand }))}
+                  />
+                </div>
+
                 {linkedItem && (
                   <div className="space-y-1.5">
                     <Label>Available unit</Label>
-                    <Select value={linkedSerialId || undefined} onValueChange={setLinkedSerialId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a SKU" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableSerials.map((su) => (
-                          <SelectItem key={su.id} value={su.id}>
-                            {su.sku}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Combobox
+                      value={linkedSerialId}
+                      onChange={setLinkedSerialId}
+                      placeholder="Select a SKU"
+                      searchPlaceholder="Search by SKU..."
+                      options={availableSerials.map((su) => ({ value: su.id, label: su.sku }))}
+                    />
                   </div>
                 )}
 
@@ -668,6 +682,33 @@ export default function ClientDetail() {
                 </p>
               )}
             </div>
+            {convertedFromLead && (
+              <div className="space-y-1.5 rounded-lg bg-ink-50 p-3 text-sm sm:col-span-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                  Carried over from lead
+                </p>
+                {convertedFromLead.interestedUnit && (
+                  <p className="text-ink-700">
+                    <span className="text-ink-400">Interested unit:</span> {convertedFromLead.interestedUnit}
+                  </p>
+                )}
+                {convertedFromLead.estimatedValue > 0 && (
+                  <p className="text-ink-700">
+                    <span className="text-ink-400">Est. value:</span> {formatCurrency(convertedFromLead.estimatedValue)}
+                  </p>
+                )}
+                {convertedFromLead.notes && (
+                  <p className="text-ink-700">
+                    <span className="text-ink-400">Notes:</span> {convertedFromLead.notes}
+                  </p>
+                )}
+                {convertedFromLead.surveyReport && (
+                  <p className="text-ink-700">
+                    <span className="text-ink-400">Survey findings:</span> {convertedFromLead.surveyReport.findings}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex items-center gap-2 text-sm text-ink-700">
               <Tag className="h-4 w-4 shrink-0 text-ink-400" />
               Source: {client.source ?? "Nothing Specified"}

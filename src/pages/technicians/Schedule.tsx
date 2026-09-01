@@ -43,6 +43,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { FilterButton } from "@/components/shared/filter-button";
 import {
   Dialog,
@@ -429,23 +430,13 @@ export default function Schedule() {
               <div className="grid gap-3">
                 <div className="space-y-1.5">
                   <Label>Client</Label>
-                  <Select
+                  <Combobox
                     value={form.clientId}
-                    onValueChange={(v) =>
-                      setForm({ ...form, clientId: v, unitId: "" })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select client" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    onChange={(v) => setForm({ ...form, clientId: v, unitId: "" })}
+                    placeholder="Select client"
+                    searchPlaceholder="Search by name, phone, or email..."
+                    options={clients.map((c) => ({ value: c.id, label: c.name, sublabel: c.phone }))}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Unit</Label>

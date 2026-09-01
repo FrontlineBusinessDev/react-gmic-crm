@@ -5,23 +5,23 @@ Verified against the frontend on 2026-09-01, commit `608df84c`.
 
 This lists only the items that are **not fully implemented** (11 of 17 spec requirements). Fully-implemented items (indoor/outdoor serial pairing, deferred inventory deduction, cost-per-unit materials, in-app-only notifications, etc.) are omitted — see the verification conversation for the full 17-item scorecard if needed.
 
-**Status: deferred.** Onboarding-flow optimization is the current priority — this file is the parking lot for these gaps until that's done.
+**Status: in progress, phased.** Being implemented a few items at a time rather than all at once. Item #7 (removing the unassigned-job pool) is explicitly **excluded** per a later decision — kept as-is.
 
 ---
 
 ## Process Flow
 
-### 1. Lead → Client conversion drops data; financial rollups never update
+### 1. ~~Lead → Client conversion drops data; financial rollups never update~~ — DONE (2026-09-01)
 - **Spec:** data entered at one stage should auto-populate later stages.
-- **Current:** `convertLeadToClient()` ([crmStore.ts:295](src/store/crmStore.ts#L295)) copies only name/phone/email/address — drops `Lead.interestedUnit` and the survey report. Client rollups `totalBilled`/`balance` are initialized to 0 ([crmStore.ts:325](src/store/crmStore.ts#L325)) and never incremented when `addInvoice()` runs, so `ClientDetail.tsx:839` displays stale numbers.
-- **Needed:** carry unit/survey data into the new client's `units[]` on conversion; update `totalBilled`/`balance` whenever an invoice is added, not just when a payment is recorded.
+- **Was:** `convertLeadToClient()` copied only name/phone/email/address — dropped `Lead.interestedUnit`/`estimatedValue`/`notes`/`surveyReport`. `Client.totalBilled`/`balance` never incremented when `addInvoice()` ran.
+- **Fixed:** `addInvoice` (`crmStore.ts`) now increments the client's `totalBilled`/`balance` by the invoice total when created. `ClientDetail.tsx` now shows a "Carried over from lead" block (interested unit, est. value, notes, survey findings) read live from the linked Lead via `client.convertedFromLeadId` — no data duplication, no forced mapping into `Unit` fields (which need real `sku`/`type`/`horsePower` that free text can't reliably supply).
 
 ## Client & Unit Management
 
-### 2. Unit dropdown is Model→Serial only; Add Client has no serial lookup
-- **Spec:** Select Brand → Select Model → Select available Serial Number.
-- **Current:** `ClientDetail.tsx:456` goes straight from an inventory-item select (brand+model conflated into one string) to an available-serial select. The Add Client dialog in `ClientsList.tsx:419` uses plain free-text fields for model/serials — no availability lookup at all.
-- **Needed:** add a Brand-first filter step ahead of the model select; wire the same Brand→Model→Serial component into the Add Client dialog instead of free text.
+### 2. ~~Unit dropdown is Model→Serial only; Add Client has no serial lookup~~ — DONE (2026-09-01)
+- **Spec:** Select Brand → Select Model → Select available Serial Number (now SKU, post the indoor/outdoor→SKU refactor).
+- **Was:** `ClientDetail.tsx` went straight from a model-item select to an available-SKU select, no brand filter. `ClientsList.tsx`'s Add Client dialog used plain free-text Model/SKU inputs, disconnected from real inventory.
+- **Fixed:** Both now have a Brand filter → Model → SKU flow, using a new reusable `Combobox` component (`src/components/ui/combobox.tsx`, debounced search). `ClientsList.tsx`'s "Add New" unit tab gained the same link-to-inventory-or-manual-entry dual mode `ClientDetail.tsx` already had.
 
 ## Inventory & Costing
 
@@ -47,10 +47,10 @@ This lists only the items that are **not fully implemented** (11 of 17 spec requ
 - **Current:** completion is type-specific — "Mark Installed" / "Submit Survey Report" / "Mark as Completed" ([MyJobs.tsx:975](src/components/MyJobs.tsx#L975)). Functionally equivalent outcome, different labels/entry points.
 - **Needed:** decide whether to unify the button label/action across job types, or keep type-specific copy but ensure they all map to one consistent underlying "done" status value (may already be true — worth confirming before changing UI).
 
-### 7. Unassigned/claimable job pool contradicts spec
+### 7. Unassigned/claimable job pool contradicts spec — EXCLUDED, keep as-is (decided 2026-09-01)
 - **Spec:** all jobs must be assigned to a specific technician; no unassigned pool, since technicians are unlikely to claim unassigned work.
 - **Current:** `ScheduleJob.technicianId: string | null` explicitly supports unassigned jobs ([types/index.ts:274](src/types/index.ts#L274)); `Schedule.tsx:210` has a `UNASSIGNED` sentinel; `MyJobs.tsx:689` renders a claimable "Unassigned jobs" list; seed data includes real unassigned jobs (`data/schedule.ts:124,137`).
-- **Needed:** require technician assignment at job-creation time (remove the `UNASSIGNED` option from the scheduling flow), and decide how to migrate/handle the existing unassigned-job UI (remove the claim flow, or repurpose it for admin re-assignment only).
+- **Decision:** explicitly do NOT remove this — the unassigned pool stays. Do not revisit unless the user asks again.
 
 ## Financials & Invoicing
 

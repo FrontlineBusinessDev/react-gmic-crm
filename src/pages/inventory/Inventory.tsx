@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -668,14 +669,14 @@ export default function Inventory() {
                       <div className="space-y-2">
                         {form.bom.map((line) => (
                           <div key={line.id} className="flex items-center gap-2">
-                            <Select value={line.materialItemId} onValueChange={(v) => updateBomLine(line.id, { materialItemId: v })}>
-                              <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                {bomEligibleItems.map((i) => (
-                                  <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <Combobox
+                              value={line.materialItemId}
+                              onChange={(v) => updateBomLine(line.id, { materialItemId: v })}
+                              placeholder="Select material"
+                              searchPlaceholder="Search by name or SKU..."
+                              options={bomEligibleItems.map((i) => ({ value: i.id, label: i.name, sublabel: i.sku }))}
+                              className="flex-1"
+                            />
                             <Input
                               type="number"
                               min={1}
@@ -1588,20 +1589,17 @@ export default function Inventory() {
                   return (
                     <div key={line.key} className="space-y-2 rounded-lg border border-ink-100 p-3">
                       <div className="flex items-center gap-2">
-                        <Select
+                        <Combobox
                           value={line.inventoryItemId}
-                          onValueChange={(v) => {
+                          onChange={(v) => {
                             const selected = inventory.find((i) => i.id === v);
                             updateBatchLine(line.key, { inventoryItemId: v, itemName: selected?.name ?? "", unitCost: selected?.unitCost ?? line.unitCost });
                           }}
-                        >
-                          <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {batchableInventory.map((i) => (
-                              <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          placeholder="Select item"
+                          searchPlaceholder="Search by name or SKU..."
+                          options={batchableInventory.map((i) => ({ value: i.id, label: i.name, sublabel: i.sku }))}
+                          className="flex-1"
+                        />
                         <Button type="button" size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-ink-400" onClick={() => removeBatchLine(line.key)}>
                           <X className="h-3.5 w-3.5" />
                         </Button>

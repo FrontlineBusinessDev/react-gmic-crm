@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { FilterButton } from "@/components/shared/filter-button";
 import {
   Dialog,
@@ -391,14 +392,13 @@ export default function Financial() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Client</Label>
-                  <Select value={form.clientId} onValueChange={(v) => setForm({ ...form, clientId: v })}>
-                    <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
-                    <SelectContent>
-                      {clients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Combobox
+                    value={form.clientId}
+                    onChange={(v) => setForm({ ...form, clientId: v })}
+                    placeholder="Select client"
+                    searchPlaceholder="Search by name, phone, or email..."
+                    options={clients.map((c) => ({ value: c.id, label: c.name, sublabel: c.phone }))}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Invoice type</Label>
@@ -416,14 +416,13 @@ export default function Financial() {
                     <TabsContent value="unit" className="pt-3">
                       <div className="space-y-1.5">
                         <Label>Inventory item</Label>
-                        <Select value={form.sourceId} onValueChange={selectUnitSource}>
-                          <SelectTrigger><SelectValue placeholder="Select unit / material" /></SelectTrigger>
-                          <SelectContent>
-                            {activeInventory.map((item) => (
-                              <SelectItem key={item.id} value={item.id}>{item.name} ({item.sku})</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Combobox
+                          value={form.sourceId}
+                          onChange={selectUnitSource}
+                          placeholder="Select unit / material"
+                          searchPlaceholder="Search by name or SKU..."
+                          options={activeInventory.map((item) => ({ value: item.id, label: item.name, sublabel: item.sku }))}
+                        />
                       </div>
                     </TabsContent>
                     <TabsContent value="service" className="pt-3">

@@ -1269,7 +1269,15 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     const num = manualNumber?.trim() || formatInvoiceNumber(get().invoiceNumberFormat, idCounter + 1);
     const id = nextId("inv");
     const newInvoice: Invoice = { ...invoiceData, id, invoiceNumber: num };
-    set((s) => ({ invoices: [newInvoice, ...s.invoices] }));
+    const invoiceTotal = invoice.items.reduce((sum, i) => sum + i.qty * i.unitPrice, 0);
+    set((s) => ({
+      invoices: [newInvoice, ...s.invoices],
+      clients: s.clients.map((c) =>
+        c.id === invoice.clientId
+          ? { ...c, totalBilled: c.totalBilled + invoiceTotal, balance: c.balance + invoiceTotal }
+          : c
+      ),
+    }));
     for (const item of invoice.items) {
       if (item.kind === "unit" && item.sourceId) {
         get().deductInventory(item.sourceId, item.qty);
