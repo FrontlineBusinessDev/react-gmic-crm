@@ -13,7 +13,7 @@ import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/m
 import { EmptyState } from "@/components/shared/empty-state";
 import { Pagination } from "@/components/shared/pagination";
 import { useCrmStore } from "@/store/crmStore";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatCurrencyCompact } from "@/lib/utils";
 import { CHART_COLORS, nivoTheme } from "@/lib/nivo-theme";
 import { usePagination } from "@/lib/use-pagination";
 import type { ClientSource } from "@/types";
@@ -104,9 +104,6 @@ export default function Reports() {
           <TabsTrigger value="overview">
             <BarChart3 className="h-3.5 w-3.5" /> Overview
           </TabsTrigger>
-          <TabsTrigger value="financial">
-            <Wallet className="h-3.5 w-3.5" /> Financial
-          </TabsTrigger>
           <TabsTrigger value="inventory">
             <Boxes className="h-3.5 w-3.5" /> Inventory
           </TabsTrigger>
@@ -157,7 +154,7 @@ export default function Reports() {
                     borderRadius={6}
                     theme={nivoTheme}
                     axisBottom={{ tickSize: 0, tickPadding: 8 }}
-                    axisLeft={{ tickSize: 0, tickPadding: 8, format: (v) => `₱${(Number(v) / 1000).toFixed(0)}k` }}
+                    axisLeft={{ tickSize: 0, tickPadding: 8, format: (v) => formatCurrencyCompact(Number(v)) }}
                     enableLabel={false}
                     valueFormat={(v) => formatCurrency(Number(v))}
                     tooltipLabel={(d) => String(d.indexValue)}
@@ -184,7 +181,7 @@ export default function Reports() {
                     colors={[CHART_COLORS[3], CHART_COLORS[2]]}
                     theme={nivoTheme}
                     borderWidth={0}
-                    arcLinkLabelsTextColor="#4b6478"
+                    arcLinkLabelsTextColor="var(--color-ink-500)"
                     arcLinkLabelsColor={{ from: "color" }}
                     arcLabelsTextColor="#ffffff"
                     valueFormat={(v) => formatCurrency(Number(v))}
@@ -223,7 +220,7 @@ export default function Reports() {
                   colors={CHART_COLORS[1]}
                   borderRadius={6}
                   theme={nivoTheme}
-                  axisBottom={{ tickSize: 0, tickPadding: 8, format: (v) => `₱${(Number(v) / 1000).toFixed(0)}k` }}
+                  axisBottom={{ tickSize: 0, tickPadding: 8, format: (v) => formatCurrencyCompact(Number(v)) }}
                   axisLeft={{ tickSize: 0, tickPadding: 8 }}
                   enableGridY={false}
                   enableLabel={false}
@@ -233,40 +230,45 @@ export default function Reports() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
 
-        <TabsContent value="financial" className="space-y-6">
-          <div className="flex items-center justify-end gap-2">
-            <Label className="text-xs text-ink-500">Period</Label>
-            <Select value={financialPeriod} onValueChange={(v) => setFinancialPeriod(v as ReportPeriod)}>
-              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {periodOptions.map((p) => (
-                  <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Card><CardContent className="p-5">
-              <p className="text-xs font-medium uppercase text-ink-500">Cash-In</p>
-              <p className="mt-1 font-display text-xl font-semibold text-brand-green-600">{formatCurrency(cashFlowReport.cashIn)}</p>
-              <p className="mt-1 text-xs text-ink-400">Payments received this period</p>
-            </CardContent></Card>
-            <Card><CardContent className="p-5">
-              <p className="text-xs font-medium uppercase text-ink-500">Cash-Out</p>
-              <p className="mt-1 font-display text-xl font-semibold text-brand-crimson-600">{formatCurrency(cashFlowReport.cashOut)}</p>
-              <p className="mt-1 text-xs text-ink-400">
-                Materials/units {formatCurrency(cashFlowReport.cashOutBreakdown.materials)} · Expenses {formatCurrency(cashFlowReport.cashOutBreakdown.expenses)}
-              </p>
-            </CardContent></Card>
-            <Card><CardContent className="p-5">
-              <p className="text-xs font-medium uppercase text-ink-500">Cash-on-Hand</p>
-              <p className={`mt-1 font-display text-xl font-semibold ${cashFlowReport.cashOnHand >= 0 ? "text-ink-800" : "text-brand-crimson-600"}`}>
-                {formatCurrency(cashFlowReport.cashOnHand)}
-              </p>
-              <p className="mt-1 text-xs text-ink-400">All-time cash-in minus cash-out</p>
-            </CardContent></Card>
+          <div className="space-y-4 rounded-xl border border-ink-100 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 font-display text-display-sm font-semibold text-ink-800">
+                <Wallet className="h-4 w-4 text-ink-400" /> Cash Flow
+              </h3>
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-ink-500">Period</Label>
+                <Select value={financialPeriod} onValueChange={(v) => setFinancialPeriod(v as ReportPeriod)}>
+                  <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {periodOptions.map((p) => (
+                      <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <Card><CardContent className="p-5">
+                <p className="text-xs font-medium uppercase text-ink-500">Cash-In</p>
+                <p className="mt-1 font-display text-xl font-semibold text-brand-green-600">{formatCurrency(cashFlowReport.cashIn)}</p>
+                <p className="mt-1 text-xs text-ink-400">Payments received this period</p>
+              </CardContent></Card>
+              <Card><CardContent className="p-5">
+                <p className="text-xs font-medium uppercase text-ink-500">Cash-Out</p>
+                <p className="mt-1 font-display text-xl font-semibold text-brand-crimson-600">{formatCurrency(cashFlowReport.cashOut)}</p>
+                <p className="mt-1 text-xs text-ink-400">
+                  Materials/units {formatCurrency(cashFlowReport.cashOutBreakdown.materials)} · Expenses {formatCurrency(cashFlowReport.cashOutBreakdown.expenses)}
+                </p>
+              </CardContent></Card>
+              <Card><CardContent className="p-5">
+                <p className="text-xs font-medium uppercase text-ink-500">Cash-on-Hand</p>
+                <p className={`mt-1 font-display text-xl font-semibold ${cashFlowReport.cashOnHand >= 0 ? "text-ink-800" : "text-brand-crimson-600"}`}>
+                  {formatCurrency(cashFlowReport.cashOnHand)}
+                </p>
+                <p className="mt-1 text-xs text-ink-400">All-time cash-in minus cash-out</p>
+              </CardContent></Card>
+            </div>
           </div>
         </TabsContent>
 

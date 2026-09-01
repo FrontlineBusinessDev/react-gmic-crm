@@ -345,6 +345,13 @@ export default function MyJobs() {
     URL.revokeObjectURL(url);
   }
 
+  function closeSurveyForm() {
+    // Photos are only persisted into the store on submit — if the dialog is
+    // dismissed without submitting, release the still-unused object URLs.
+    surveyPhotos.forEach((url) => URL.revokeObjectURL(url));
+    setSurveyOpen(false);
+  }
+
   function submitSurveyReport() {
     if (!activeJob || !currentUser || !surveyForm.findings) return;
     const lead = leads.find((l) => l.clientName === activeJob.clientName);
@@ -839,10 +846,10 @@ export default function MyJobs() {
             <>
               <DialogHeader>
                 <DialogTitle>{activeJob.title}</DialogTitle>
-                <DialogDescription>
-                  {activeJob.type} ·{" "}
+                <DialogDescription>{activeJob.type}</DialogDescription>
+                <div className="flex items-center">
                   <JobStatusBadge status={activeJob.status} />
-                </DialogDescription>
+                </div>
               </DialogHeader>
 
               <div className="space-y-3 text-sm">
@@ -1126,7 +1133,7 @@ export default function MyJobs() {
       </Dialog>
 
       {/* Survey report submission — real photo upload (local object URLs, no backend) attached to the client's lead record */}
-      <Dialog open={surveyOpen} onOpenChange={setSurveyOpen}>
+      <Dialog open={surveyOpen} onOpenChange={(o) => (o ? setSurveyOpen(true) : closeSurveyForm())}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Submit survey report</DialogTitle>
@@ -1190,7 +1197,7 @@ export default function MyJobs() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSurveyOpen(false)}>
+            <Button variant="outline" onClick={closeSurveyForm}>
               Cancel
             </Button>
             <Button

@@ -17,22 +17,22 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/mobile-list";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { InvoiceStatusBadge } from "@/components/shared/status-badge";
+import { InvoiceStatusBadge, PendingOrderStatusBadge } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FileDropZone } from "@/components/shared/file-drop-zone";
 import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
 import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
+import { ActionDialogShell } from "@/components/shared/action-dialog-shell";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatBalance, formatDate } from "@/lib/utils";
 import { exportInvoicePdf } from "@/lib/invoice-pdf";
 import type { ClientSource, Invoice, InvoiceStatus, PaymentRecord, PaymentMethod, PendingOrder, ExpenseCategory } from "@/types";
 
@@ -116,7 +116,10 @@ export default function Financial() {
   const activeInventory = useMemo(() => inventory.filter((i) => (i.status ?? "active") === "active"), [inventory]);
   const activeServiceCatalog = useMemo(() => serviceCatalog.filter((s) => (s.status ?? "active") === "active"), [serviceCatalog]);
   const invoiceAuditEntries = useMemo(() => auditLog.filter((e) => e.module === "invoice"), [auditLog]);
-  const [addOpen, setAddOpen] = useState(false);
+  // Create Invoice / New Order / Add Expense share one dialog shell — this
+  // state controls which of the three is open and which tab is active.
+  const [newActionOpen, setNewActionOpen] = useState(false);
+  const [newActionTab, setNewActionTab] = useState<"invoice" | "order" | "expense">("invoice");
   const [payOpen, setPayOpen] = useState<Invoice | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payMethod, setPayMethod] = useState<PaymentMethod>("Cash");
@@ -145,7 +148,6 @@ export default function Financial() {
   const [importOpen, setImportOpen] = useState(false);
 
   // Pending Orders (payment-first flow)
-  const [newOrderOpen, setNewOrderOpen] = useState(false);
   const [newOrderMode, setNewOrderMode] = useState<"job" | "manual">("job");
   const [newOrderJobId, setNewOrderJobId] = useState("");
   const [newOrderClientId, setNewOrderClientId] = useState("");
@@ -163,7 +165,6 @@ export default function Financial() {
   const [poPaymentError, setPoPaymentError] = useState<string | null>(null);
 
   // Expenses
-  const [expenseOpen, setExpenseOpen] = useState(false);
   const [expenseForm, setExpenseForm] = useState({
     category: "Employee Salaries" as ExpenseCategory,
     amount: "",
@@ -269,7 +270,8 @@ export default function Financial() {
     setCustomizeInvoiceNumber(false);
     setManualInvoiceNumber(previewNextInvoiceNumber());
     resetInitialPayment();
-    setAddOpen(true);
+    setNewActionTab("invoice");
+    setNewActionOpen(true);
   }
 
   function resetInitialPayment() {
@@ -344,7 +346,7 @@ export default function Financial() {
     setInvoiceTab("unit");
     setCustomizeInvoiceNumber(false);
     resetInitialPayment();
-    setAddOpen(false);
+    setNewActionOpen(false);
   }
 
   function saveInvoiceNumberFormat() {
@@ -434,7 +436,13 @@ export default function Financial() {
     setNewOrderUnitPrice("");
     setNewOrderAdditionalCost("");
     setNewOrderAdditionalCostNote("");
-    setNewOrderOpen(true);
+    setNewActionTab("order");
+    setNewActionOpen(true);
+  }
+
+  function openNewExpense() {
+    setNewActionTab("expense");
+    setNewActionOpen(true);
   }
 
   function handleCreateNewOrder() {
@@ -459,7 +467,7 @@ export default function Financial() {
         additionalCostNote: newOrderAdditionalCostNote || undefined,
       });
     }
-    setNewOrderOpen(false);
+    setNewActionOpen(false);
   }
 
   function openPoPayment(order: PendingOrder) {
@@ -516,7 +524,7 @@ export default function Financial() {
       createdBy: "You",
     });
     setExpenseForm({ category: "Employee Salaries", amount: "", date: new Date().toISOString().slice(0, 10), notes: "" });
-    setExpenseOpen(false);
+    setNewActionOpen(false);
   }
 
   function handleExportCsv() {
@@ -547,7 +555,7 @@ export default function Financial() {
         title="Financial & Invoicing"
         description="Track payments and client balances."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="icon" title="Invoice number settings" onClick={() => { setFormatDraft(invoiceNumberFormat); setInvoiceSettingsOpen(true); }}>
               <SettingsIcon className="h-4 w-4" />
             </Button>
@@ -557,15 +565,36 @@ export default function Financial() {
             <Button variant="outline" onClick={handleExportCsv}>
               <FileDown className="h-4 w-4" /> Export CSV
             </Button>
-            <Dialog open={addOpen} onOpenChange={(o) => (o ? openAddInvoice() : (setAddOpen(false), resetInitialPayment()))}>
-              <DialogTrigger asChild>
-                <Button variant="brand"><Plus className="h-4 w-4" /> Create Invoice</Button>
-              </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create invoice</DialogTitle>
-                <DialogDescription>Manual line item — additional items can be added later.</DialogDescription>
-              </DialogHeader>
+            <Button variant="brand" onClick={openAddInvoice}>
+              <Plus className="h-4 w-4" /> New
+            </Button>
+          </div>
+        }
+      />
+
+      <ActionDialogShell
+        open={newActionOpen}
+        onOpenChange={(o) => {
+          setNewActionOpen(o);
+          if (!o) resetInitialPayment();
+        }}
+        title={newActionTab === "invoice" ? "Create invoice" : newActionTab === "order" ? "New order" : "Add expense"}
+        description={
+          newActionTab === "invoice"
+            ? "Manual line item — additional items can be added later."
+            : newActionTab === "order"
+            ? "Order/service details are recorded first — payment is taken next, and the invoice generates automatically once it's confirmed paid."
+            : "Log a daily operational expense for reporting."
+        }
+      >
+        <Tabs value={newActionTab} onValueChange={(v) => setNewActionTab(v as typeof newActionTab)}>
+          <TabsList>
+            <TabsTrigger value="invoice">Invoice</TabsTrigger>
+            <TabsTrigger value="order">Pending Order</TabsTrigger>
+            <TabsTrigger value="expense">Expense</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="invoice" className="space-y-3 pt-3">
               <div className="grid gap-3">
                 <div className="space-y-1.5">
                   <Label>Invoice #</Label>
@@ -741,14 +770,115 @@ export default function Financial() {
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => { setAddOpen(false); resetInitialPayment(); }}>Cancel</Button>
+                <Button variant="outline" onClick={() => setNewActionOpen(false)}>Cancel</Button>
                 <Button variant="brand" onClick={handleAddInvoice}>Create</Button>
               </DialogFooter>
-            </DialogContent>
-            </Dialog>
-          </div>
-        }
-      />
+          </TabsContent>
+
+          <TabsContent value="order" className="space-y-3 pt-3">
+            <Tabs value={newOrderMode} onValueChange={(v) => setNewOrderMode(v as "job" | "manual")}>
+              <TabsList>
+                <TabsTrigger value="job">From completed job</TabsTrigger>
+                <TabsTrigger value="manual">Manual entry</TabsTrigger>
+              </TabsList>
+              <TabsContent value="job" className="space-y-3 pt-3">
+                {completedJobsWithoutOrder.length === 0 ? (
+                  <p className="text-sm text-ink-500">No completed jobs are waiting on an order yet.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label>Completed job</Label>
+                    <Select value={newOrderJobId} onValueChange={setNewOrderJobId}>
+                      <SelectTrigger><SelectValue placeholder="Select a completed job" /></SelectTrigger>
+                      <SelectContent>
+                        {completedJobsWithoutOrder.map((j) => (
+                          <SelectItem key={j.id} value={j.id}>{j.title} — {j.clientName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-ink-500">
+                      Services, materials, and products from this job's schedule will pre-fill the order automatically.
+                    </p>
+                  </div>
+                )}
+              </TabsContent>
+              <TabsContent value="manual" className="space-y-3 pt-3">
+                <div className="space-y-1.5">
+                  <Label>Client</Label>
+                  <Combobox
+                    value={newOrderClientId}
+                    onChange={setNewOrderClientId}
+                    placeholder="Select client"
+                    searchPlaceholder="Search by name, phone, or email..."
+                    options={clients.map((c) => ({ value: c.id, label: c.name, sublabel: c.phone }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Description</Label>
+                  <Input value={newOrderDescription} onChange={(e) => setNewOrderDescription(e.target.value)} placeholder="e.g. PMS Cleaning — 2 units" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Qty</Label>
+                    <Input type="number" value={newOrderQty} onChange={(e) => setNewOrderQty(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Unit Price (₱)</Label>
+                    <Input type="number" value={newOrderUnitPrice} onChange={(e) => setNewOrderUnitPrice(e.target.value)} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Additional cost (₱, optional)</Label>
+                    <Input type="number" value={newOrderAdditionalCost} onChange={(e) => setNewOrderAdditionalCost(e.target.value)} placeholder="0.00" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Additional cost note</Label>
+                    <Input value={newOrderAdditionalCostNote} onChange={(e) => setNewOrderAdditionalCostNote(e.target.value)} placeholder="e.g. Rush fee" />
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setNewActionOpen(false)}>Cancel</Button>
+              <Button variant="brand" onClick={handleCreateNewOrder}>Create Order</Button>
+            </DialogFooter>
+          </TabsContent>
+
+          <TabsContent value="expense" className="space-y-3 pt-3">
+            <div className="grid gap-3">
+              <div className="space-y-1.5">
+                <Label>Category</Label>
+                <Select value={expenseForm.category} onValueChange={(v) => setExpenseForm({ ...expenseForm, category: v as ExpenseCategory })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {expenseCategories.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Amount (₱)</Label>
+                  <Input type="number" value={expenseForm.amount} onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })} placeholder="0.00" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Date</Label>
+                  <DatePicker value={expenseForm.date} onChange={(v) => setExpenseForm({ ...expenseForm, date: v })} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Notes</Label>
+                <Input value={expenseForm.notes} onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })} placeholder="Optional" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setNewActionOpen(false)}>Cancel</Button>
+              <Button variant="brand" onClick={handleAddExpense}>Add Expense</Button>
+            </DialogFooter>
+          </TabsContent>
+        </Tabs>
+      </ActionDialogShell>
 
       <CsvImportDialog
         open={importOpen}
@@ -851,7 +981,7 @@ export default function Financial() {
                       <MobileListRow label="Issued / Due">{formatDate(inv.issueDate)} → {formatDate(inv.dueDate)}</MobileListRow>
                       <MobileListRow label="Total">{formatCurrency(total)}</MobileListRow>
                       <MobileListRow label="Balance">
-                        <span className={balance > 0 ? "font-medium text-brand-crimson-600" : "text-ink-400"}>{formatCurrency(balance)}</span>
+                        <span className={balance > 0 ? "font-medium text-brand-crimson-600" : "text-ink-400"}>{formatBalance(balance)}</span>
                       </MobileListRow>
                       <div className="flex items-center justify-end gap-1 pt-1">
                         {balance > 0 && (
@@ -942,7 +1072,7 @@ export default function Financial() {
                           </TableCell>
                           <TableCell className="text-xs text-ink-500">{formatDate(inv.issueDate)} → {formatDate(inv.dueDate)}</TableCell>
                           <TableCell className="text-sm">{formatCurrency(total)}</TableCell>
-                          <TableCell className={balance > 0 ? "text-sm font-medium text-brand-crimson-600" : "text-sm text-ink-400"}>{formatCurrency(balance)}</TableCell>
+                          <TableCell className={balance > 0 ? "text-sm font-medium text-brand-crimson-600" : "text-sm text-ink-400"}>{formatBalance(balance)}</TableCell>
                           <TableCell><InvoiceStatusBadge status={inv.status} /></TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1">
@@ -1020,9 +1150,7 @@ export default function Financial() {
                     <MobileListCard key={order.id}>
                       <div className="flex items-start justify-between gap-3">
                         <p className="text-sm font-medium text-ink-800">{order.clientName}</p>
-                        <Badge variant={order.status === "invoiced" ? "success" : order.status === "paid" ? "success" : "warning"}>
-                          {order.status.replace("_", " ")}
-                        </Badge>
+                        <PendingOrderStatusBadge status={order.status} />
                       </div>
                       <p className="text-xs text-ink-500">{order.items.map((i) => i.description).join(", ") || "—"}</p>
                       <MobileListRow label="Total">{formatCurrency(total)}</MobileListRow>
@@ -1059,11 +1187,9 @@ export default function Financial() {
                           <TableCell className="text-sm font-medium text-ink-800">{order.clientName}</TableCell>
                           <TableCell className="max-w-xs truncate text-xs text-ink-500">{order.items.map((i) => i.description).join(", ") || "—"}</TableCell>
                           <TableCell className="text-sm">{formatCurrency(total)}</TableCell>
-                          <TableCell className={balance > 0 ? "text-sm font-medium text-brand-crimson-600" : "text-sm text-ink-400"}>{formatCurrency(balance)}</TableCell>
+                          <TableCell className={balance > 0 ? "text-sm font-medium text-brand-crimson-600" : "text-sm text-ink-400"}>{formatBalance(balance)}</TableCell>
                           <TableCell>
-                            <Badge variant={order.status === "invoiced" || order.status === "paid" ? "success" : "warning"}>
-                              {order.status.replace("_", " ")}
-                            </Badge>
+                            <PendingOrderStatusBadge status={order.status} />
                           </TableCell>
                           <TableCell>
                             {order.status === "pending_payment" && (
@@ -1084,7 +1210,7 @@ export default function Financial() {
 
         <TabsContent value="expenses" className="space-y-4">
           <div className="flex justify-end">
-            <Button variant="brand" onClick={() => setExpenseOpen(true)}>
+            <Button variant="brand" onClick={openNewExpense}>
               <Plus className="h-4 w-4" /> Add Expense
             </Button>
           </div>
@@ -1275,81 +1401,6 @@ export default function Financial() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={newOrderOpen} onOpenChange={setNewOrderOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New order</DialogTitle>
-            <DialogDescription>Order/service details are recorded first — payment is taken next, and the invoice generates automatically once it's confirmed paid.</DialogDescription>
-          </DialogHeader>
-          <Tabs value={newOrderMode} onValueChange={(v) => setNewOrderMode(v as "job" | "manual")}>
-            <TabsList>
-              <TabsTrigger value="job">From completed job</TabsTrigger>
-              <TabsTrigger value="manual">Manual entry</TabsTrigger>
-            </TabsList>
-            <TabsContent value="job" className="space-y-3 pt-3">
-              {completedJobsWithoutOrder.length === 0 ? (
-                <p className="text-sm text-ink-500">No completed jobs are waiting on an order yet.</p>
-              ) : (
-                <div className="space-y-1.5">
-                  <Label>Completed job</Label>
-                  <Select value={newOrderJobId} onValueChange={setNewOrderJobId}>
-                    <SelectTrigger><SelectValue placeholder="Select a completed job" /></SelectTrigger>
-                    <SelectContent>
-                      {completedJobsWithoutOrder.map((j) => (
-                        <SelectItem key={j.id} value={j.id}>{j.title} — {j.clientName}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-ink-500">
-                    Services, materials, and products from this job's schedule will pre-fill the order automatically.
-                  </p>
-                </div>
-              )}
-            </TabsContent>
-            <TabsContent value="manual" className="space-y-3 pt-3">
-              <div className="space-y-1.5">
-                <Label>Client</Label>
-                <Combobox
-                  value={newOrderClientId}
-                  onChange={setNewOrderClientId}
-                  placeholder="Select client"
-                  searchPlaceholder="Search by name, phone, or email..."
-                  options={clients.map((c) => ({ value: c.id, label: c.name, sublabel: c.phone }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Description</Label>
-                <Input value={newOrderDescription} onChange={(e) => setNewOrderDescription(e.target.value)} placeholder="e.g. PMS Cleaning — 2 units" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Qty</Label>
-                  <Input type="number" value={newOrderQty} onChange={(e) => setNewOrderQty(e.target.value)} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Unit Price (₱)</Label>
-                  <Input type="number" value={newOrderUnitPrice} onChange={(e) => setNewOrderUnitPrice(e.target.value)} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Additional cost (₱, optional)</Label>
-                  <Input type="number" value={newOrderAdditionalCost} onChange={(e) => setNewOrderAdditionalCost(e.target.value)} placeholder="0.00" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Additional cost note</Label>
-                  <Input value={newOrderAdditionalCostNote} onChange={(e) => setNewOrderAdditionalCostNote(e.target.value)} placeholder="e.g. Rush fee" />
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNewOrderOpen(false)}>Cancel</Button>
-            <Button variant="brand" onClick={handleCreateNewOrder}>Create Order</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={!!poPayOpen} onOpenChange={(o) => !o && closePoPayment()}>
         <DialogContent>
           {poPayOpen && (
@@ -1422,45 +1473,6 @@ export default function Financial() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={expenseOpen} onOpenChange={setExpenseOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add expense</DialogTitle>
-            <DialogDescription>Log a daily operational expense for reporting.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3">
-            <div className="space-y-1.5">
-              <Label>Category</Label>
-              <Select value={expenseForm.category} onValueChange={(v) => setExpenseForm({ ...expenseForm, category: v as ExpenseCategory })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {expenseCategories.map((c) => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Amount (₱)</Label>
-                <Input type="number" value={expenseForm.amount} onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })} placeholder="0.00" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Date</Label>
-                <DatePicker value={expenseForm.date} onChange={(v) => setExpenseForm({ ...expenseForm, date: v })} />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <Input value={expenseForm.notes} onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })} placeholder="Optional" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setExpenseOpen(false)}>Cancel</Button>
-            <Button variant="brand" onClick={handleAddExpense}>Add Expense</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

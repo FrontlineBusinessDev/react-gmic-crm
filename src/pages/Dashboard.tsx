@@ -1,16 +1,17 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Users, Target, Wallet, Boxes, ArrowRight, Clock } from "lucide-react";
+import { Users, Target, Wallet, Boxes, ArrowRight, Clock, Activity } from "lucide-react";
 import { ResponsiveBar } from "@nivo/bar";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ProjectStatusBadge } from "@/components/shared/status-badge";
+import { EmptyState } from "@/components/shared/empty-state";
 import { useCrmStore } from "@/store/crmStore";
 import { useAuthStore } from "@/store/authStore";
-import { formatCurrency, formatDateTime, initials } from "@/lib/utils";
+import { formatCurrency, formatCurrencyCompact, formatDateTime, initials } from "@/lib/utils";
 import { CHART_COLORS, nivoTheme } from "@/lib/nivo-theme";
 import { mockUsers } from "@/data/users";
 
@@ -58,7 +59,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Active Clients" value={String(clients.filter((c) => c.status === "active").length)} icon={Users} accent="blue" delay={0} />
-        <StatCard label="Active Leads" value={String(stats.activeLeads)} icon={Target} accent="cyan" trend={`₱${(stats.wonValue / 1000).toFixed(0)}k won this period`} trendDirection="up" delay={0.05} />
+        <StatCard label="Active Leads" value={String(stats.activeLeads)} icon={Target} accent="cyan" trend={`${formatCurrencyCompact(stats.wonValue)} won this period`} trendDirection="up" delay={0.05} />
         <StatCard label="Outstanding Balance" value={formatCurrency(stats.totalOutstanding)} icon={Wallet} accent="crimson" trend={`${overdueInvoices.length} invoices need follow-up`} trendDirection="down" delay={0.1} />
         <StatCard label="Products Under Management" value={String(stats.totalUnits)} icon={Boxes} accent="green" delay={0.15} />
       </div>
@@ -94,6 +95,9 @@ export default function Dashboard() {
             <CardDescription>Next scheduled field visits</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            {upcomingJobs.length === 0 && (
+              <EmptyState icon={Clock} title="No upcoming jobs" description="Scheduled field visits will appear here." />
+            )}
             {upcomingJobs.map((job) => {
               const tech = mockUsers.find((u) => u.id === job.technicianId);
               return (
@@ -127,6 +131,9 @@ export default function Dashboard() {
             <CardDescription>Latest updates across the team</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {activity.length === 0 && (
+              <EmptyState icon={Activity} title="No recent activity" description="Team updates will appear here as they happen." />
+            )}
             {activity.slice(0, 6).map((item, i) => (
               <motion.div
                 key={item.id}

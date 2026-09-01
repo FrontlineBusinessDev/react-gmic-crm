@@ -131,7 +131,7 @@ export default function ServiceCatalog() {
         title="Service Catalog"
         description="Services offered to clients, with description and sample pricing."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <FileUp className="h-4 w-4" /> Import CSV
             </Button>

@@ -190,7 +190,7 @@ export default function Suppliers() {
         title="Suppliers"
         description="Vendors and contacts that stock the inventory catalog."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <FileUp className="h-4 w-4" /> Import CSV
             </Button>

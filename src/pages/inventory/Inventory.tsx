@@ -23,7 +23,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/mobile-list";
-import { InventoryStatusBadge, ReorderRequestStatusBadge } from "@/components/shared/status-badge";
+import { InventoryStatusBadge, ReorderRequestStatusBadge, PurchaseBatchStatusBadge } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FilterTransition } from "@/components/shared/filter-transition";
@@ -562,7 +562,7 @@ export default function Inventory() {
         title="Product"
         description="Units and materials, with automatic deduction on installation."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <FileUp className="h-4 w-4" /> Import CSV
             </Button>
@@ -736,22 +736,24 @@ export default function Inventory() {
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="list">Product</TabsTrigger>
-          <TabsTrigger value="batches">Inventory</TabsTrigger>
-          <TabsTrigger value="reorders">
-            Reorder Requests
-            {reorderRequests.some((r) => r.status === "requested" || r.status === "ordered") && (
-              <Badge variant="warning" className="ml-1.5">
-                {reorderRequests.filter((r) => r.status === "requested" || r.status === "ordered").length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <Button variant="outline" size="sm" onClick={openCategoryManager} className="ml-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <TabsList>
+            <TabsTrigger value="list">Product</TabsTrigger>
+            <TabsTrigger value="batches">Inventory</TabsTrigger>
+            <TabsTrigger value="reorders">
+              Reorder Requests
+              {reorderRequests.some((r) => r.status === "requested" || r.status === "ordered") && (
+                <Badge variant="warning" className="ml-1.5">
+                  {reorderRequests.filter((r) => r.status === "requested" || r.status === "ordered").length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="audit">Audit Trail</TabsTrigger>
+          </TabsList>
+          <Button variant="outline" size="sm" onClick={openCategoryManager}>
             <Settings2 className="h-3.5 w-3.5" /> Manage Categories
           </Button>
-          <TabsTrigger value="audit">Audit Trail</TabsTrigger>
-        </TabsList>
+        </div>
 
         <TabsContent value="list" className="space-y-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
@@ -961,9 +963,7 @@ export default function Inventory() {
                         <p className="text-xs text-ink-400">{batch.supplier}</p>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <Badge variant={batch.status === "received" ? "success" : batch.status === "cancelled" ? "destructive" : "warning"}>
-                          {batch.status}
-                        </Badge>
+                        <PurchaseBatchStatusBadge status={batch.status} />
                         <ChevronRight className="h-4 w-4 shrink-0 text-ink-300" />
                       </div>
                     </div>
@@ -1006,9 +1006,7 @@ export default function Inventory() {
                         <TableCell>{batch.lines.length}</TableCell>
                         <TableCell>{formatCurrency(batch.totalCost)}</TableCell>
                         <TableCell>
-                          <Badge variant={batch.status === "received" ? "success" : batch.status === "cancelled" ? "destructive" : "warning"}>
-                            {batch.status}
-                          </Badge>
+                          <PurchaseBatchStatusBadge status={batch.status} />
                         </TableCell>
                         <TableCell className="text-sm text-ink-600">{batch.receivedAt ? new Date(batch.receivedAt).toLocaleDateString() : "—"}</TableCell>
                         <TableCell>

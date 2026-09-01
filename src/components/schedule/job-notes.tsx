@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessageSquarePlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,6 +14,18 @@ interface JobNotesPanelProps {
 export function JobNotesPanel({ entries, onAddNote }: JobNotesPanelProps) {
   const [text, setText] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
+
+  // Only staged (unsubmitted) photo URLs need cleanup — submitted ones are handed
+  // off to onAddNote and stay valid for redisplay in `entries`.
+  const photosRef = useRef(photos);
+  useEffect(() => {
+    photosRef.current = photos;
+  }, [photos]);
+  useEffect(() => {
+    return () => {
+      photosRef.current.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
 
   function handleFiles(files: File[]) {
     const urls = files.map((f) => URL.createObjectURL(f));

@@ -1285,7 +1285,7 @@ export default function ClientDetail() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  title={`Email a payment reminder for ₱${balance.toLocaleString()} outstanding`}
+                                  title={`Email a payment reminder for ${formatCurrency(balance)} outstanding`}
                                   onClick={() => openFollowupEmail(inv)}
                                 >
                                   <Mail className="h-3.5 w-3.5" /> Email Follow-up

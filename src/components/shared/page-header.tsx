@@ -16,10 +16,10 @@ export function PageHeader({ title, description, actions }: PageHeaderProps) {
       className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
     >
       <div>
-        <h1 className="font-display text-xl font-semibold text-ink-900 sm:text-2xl">{title}</h1>
+        <h1 className="font-display text-display-md font-semibold text-ink-900 sm:text-display-lg">{title}</h1>
         {description && <p className="mt-1 text-sm text-ink-500">{description}</p>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2 sm:shrink-0">{actions}</div>}
     </motion.div>
   );
 }

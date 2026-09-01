@@ -543,7 +543,7 @@ export default function ClientsList() {
         title="Clients"
         description="Every client and their unit history, in one place."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant={bulkPaymentMode ? "brand" : "outline"}
               onClick={() => {
@@ -781,7 +781,7 @@ export default function ClientsList() {
                                     type="button"
                                     size="icon"
                                     variant="ghost"
-                                    className="h-9 w-9 shrink-0 text-ink-400"
+                                    className="h-11 w-11 shrink-0 text-ink-400"
                                     onClick={() => removeUnitDraft(unit.key)}
                                   >
                                     <X className="h-3.5 w-3.5" />
@@ -1309,17 +1309,18 @@ export default function ClientsList() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-2">
                           {bulkPaymentMode && (
-                            <input
-                              type="checkbox"
-                              className="mt-1 h-3.5 w-3.5 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400 disabled:opacity-40"
-                              checked={selectedClientIds.has(client.id)}
-                              disabled={client.balance <= 0}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                toggleClientSelected(client.id);
-                              }}
+                            <span
+                              className="-m-2.5 flex shrink-0 items-center justify-center p-2.5"
                               onClick={(e) => e.stopPropagation()}
-                            />
+                            >
+                              <input
+                                type="checkbox"
+                                className="h-3.5 w-3.5 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400 disabled:opacity-40"
+                                checked={selectedClientIds.has(client.id)}
+                                disabled={client.balance <= 0}
+                                onChange={() => toggleClientSelected(client.id)}
+                              />
+                            </span>
                           )}
                           <div>
                             <p className="font-medium text-ink-800">
@@ -1416,13 +1417,15 @@ export default function ClientsList() {
                         >
                           {bulkPaymentMode && (
                             <TableCell onClick={(e) => e.stopPropagation()}>
-                              <input
-                                type="checkbox"
-                                className="h-3.5 w-3.5 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400 disabled:opacity-40"
-                                checked={selectedClientIds.has(client.id)}
-                                disabled={client.balance <= 0}
-                                onChange={() => toggleClientSelected(client.id)}
-                              />
+                              <span className="-m-2.5 flex w-fit items-center justify-center p-2.5">
+                                <input
+                                  type="checkbox"
+                                  className="h-3.5 w-3.5 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400 disabled:opacity-40"
+                                  checked={selectedClientIds.has(client.id)}
+                                  disabled={client.balance <= 0}
+                                  onChange={() => toggleClientSelected(client.id)}
+                                />
+                              </span>
                             </TableCell>
                           )}
                           <TableCell>

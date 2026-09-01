@@ -14,6 +14,19 @@ export function formatCurrency(amount: number) {
   }).format(amount);
 }
 
+/** Compact axis/label form, e.g. ₱45k — for chart ticks, not for exact amounts. */
+export function formatCurrencyCompact(amount: number) {
+  return `₱${(amount / 1000).toFixed(0)}k`;
+}
+
+/** For an outstanding-balance figure specifically: a negative balance means the
+ * client has overpaid, so render it as a credit rather than a bare "-₱X" which
+ * reads as still-owed. */
+export function formatBalance(amount: number) {
+  if (amount < 0) return `${formatCurrency(-amount)} credit`;
+  return formatCurrency(amount);
+}
+
 export function formatDate(dateStr: string) {
   const d = new Date(dateStr);
   return new Intl.DateTimeFormat("en-PH", {

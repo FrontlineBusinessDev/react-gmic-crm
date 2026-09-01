@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   addDays,
   addMonths,
@@ -187,6 +187,17 @@ export default function Schedule() {
       ? "list"
       : "month",
   );
+  // Keep the smart default responsive to viewport changes after mount (resize/rotation), without
+  // overriding an explicit day/week pick the user made.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const handler = (e: MediaQueryListEvent) => {
+      setView((v) => (v === "list" || v === "month" ? (e.matches ? "list" : "month") : v));
+    };
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
   const [anchorMonth, setAnchorMonth] = useState(() =>
     startOfMonth(new Date()),
   );
@@ -328,6 +339,11 @@ export default function Schedule() {
     return eachDayOfInterval({ start, end });
   }, [anchorMonth]);
 
+  const monthHasJobs = useMemo(
+    () => filteredSchedule.some((job) => isSameMonth(new Date(job.date), anchorMonth)),
+    [filteredSchedule, anchorMonth]
+  );
+
   const groupedByDate = useMemo(() => {
     const groups: Record<string, ScheduleJob[]> = {};
     for (const job of filteredSchedule) {
@@ -437,7 +453,7 @@ export default function Schedule() {
         title="Technician Scheduling"
         description="Visualize field team availability to avoid overbooking."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <FileUp className="h-4 w-4" /> Import CSV
             </Button>
@@ -867,6 +883,28 @@ export default function Schedule() {
                   )}
                 </div>
 
+                {!monthHasJobs ? (
+                  <div className="p-4">
+                    <EmptyState
+                      icon={CalendarClock}
+                      title="Nothing scheduled this month"
+                      description="Jobs for this month will show up here once scheduled."
+                      action={
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditingJobId(null);
+                            setForm(emptyForm);
+                            setOpen(true);
+                          }}
+                        >
+                          <Plus className="h-4 w-4" /> Schedule a job
+                        </Button>
+                      }
+                    />
+                  </div>
+                ) : (
                 <div className="grid grid-cols-7">
                   {monthDays.map((day) => {
                     const iso = format(day, "yyyy-MM-dd");
@@ -876,17 +914,23 @@ export default function Schedule() {
                     const inMonth = isSameMonth(day, anchorMonth);
                     const today = isToday(day);
 
+                    const openDay = () =>
+                      dayJobs.length > 0 ? setDayDialogDate(iso) : openQuickAdd(iso);
+
                     return (
-                      <button
+                      <div
                         key={iso}
-                        type="button"
-                        onClick={() =>
-                          dayJobs.length > 0
-                            ? setDayDialogDate(iso)
-                            : openQuickAdd(iso)
-                        }
+                        role="button"
+                        tabIndex={0}
+                        onClick={openDay}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openDay();
+                          }
+                        }}
                         className={cn(
-                          "group relative flex min-h-[56px] flex-col gap-1 border-b border-r border-ink-100 p-1 text-left align-top transition-colors last:border-r-0 sm:min-h-[104px] sm:p-1.5",
+                          "group relative flex min-h-[56px] cursor-pointer flex-col gap-1 border-b border-r border-ink-100 p-1 text-left align-top transition-colors last:border-r-0 sm:min-h-[104px] sm:p-1.5",
                           inMonth
                             ? "bg-white hover:bg-ink-50/60"
                             : "bg-ink-50/40 text-ink-300 hover:bg-ink-50/60",
@@ -908,13 +952,14 @@ export default function Schedule() {
                         {/* Desktop: full time + title pills. Mobile: just enough info fits, so collapse to status dots below. */}
                         <div className="hidden flex-1 flex-col gap-1 sm:flex">
                           {visible.map((job) => (
-                            <span
+                            <button
                               key={job.id}
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setActiveJob(job);
                               }}
-                              className="flex items-center gap-1 truncate rounded px-1.5 py-0.5 text-[10px] font-medium text-ink-700 hover:bg-ink-100"
+                              className="flex items-center gap-1 truncate rounded px-1.5 py-0.5 text-left text-[10px] font-medium text-ink-700 hover:bg-ink-100"
                               title={`${job.time} · ${job.title}`}
                             >
                               <span
@@ -926,7 +971,7 @@ export default function Schedule() {
                               <span className="truncate">
                                 {job.time} {job.title}
                               </span>
-                            </span>
+                            </button>
                           ))}
                           {overflow > 0 && (
                             <span className="px-1.5 text-[10px] font-medium text-brand-blue-600">
@@ -956,10 +1001,11 @@ export default function Schedule() {
                             </span>
                           )}
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
+                )}
               </Card>
             ) : groupedByDate.length === 0 ? (
               <EmptyState

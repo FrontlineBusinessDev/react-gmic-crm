@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, Phone, Mail, MapPin, FileText, ArrowRight, ArrowUpRight, UserCheck, Search, X, Clock, ArrowUpDown, LayoutGrid, LayoutList, Settings2, Pencil, Archive, ArchiveRestore, ChevronUp, ChevronDown } from "lucide-react";
+import { Plus, Phone, Mail, MapPin, FileText, ArrowRight, ArrowUpRight, UserCheck, Search, X, Clock, ArrowUpDown, LayoutGrid, LayoutList, Settings2, Pencil, Archive, ArchiveRestore, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { FilterButton } from "@/components/shared/filter-button";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -105,6 +105,9 @@ export default function LeadsPipeline() {
         .map((s) => ({ key: s.id, label: s.label, accent: s.accent, kind: s.kind })),
     [pipelineStages]
   );
+  useEffect(() => {
+    setActiveStageIndex((i) => Math.min(i, Math.max(0, stages.length - 1)));
+  }, [stages.length]);
   const firstLeadStageId = stages.find((s) => s.kind === "lead")?.key ?? "Inquiry";
   // First two lead-kind stages by order (e.g. Inquiry, Site Visit) don't require a
   // product/services commitment yet — everything past that (Quotation onwards, plus
@@ -183,6 +186,9 @@ export default function LeadsPipeline() {
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
   const [dragOverStage, setDragOverStage] = useState<ProjectStatus | null>(null);
+  // Mobile Kanban shows one stage column at a time instead of horizontal-scrolling
+  // through all of them — desktop keeps the multi-column scroll view unchanged.
+  const [activeStageIndex, setActiveStageIndex] = useState(0);
   const emptyLeadForm = {
     clientName: "",
     phone: "",
@@ -293,6 +299,111 @@ export default function LeadsPipeline() {
     const newClientId = convertLeadToClient(lead.id);
     setDetailLead(null);
     if (newClientId) navigate(`/clients/${newClientId}`);
+  }
+
+  // Shared column body for both the desktop multi-column scroll and the mobile
+  // one-stage-at-a-time view — `fullWidth` swaps the fixed 280px column width
+  // for the mobile single-column layout.
+  function renderStageColumn(stage: (typeof stages)[number], fullWidth = false) {
+    const stageLeads = filteredLeads.filter((l) => l.stage === stage.key);
+    const isDropTarget = dragOverStage === stage.key && draggedLead?.stage !== stage.key;
+    const canDropHere = draggedLead && draggedLead.stage !== stage.key;
+    return (
+      <div
+        key={stage.key}
+        className={`flex flex-col gap-3 ${fullWidth ? "w-full" : "w-[280px] shrink-0"}`}
+        onDragOver={(e) => {
+          if (!canDropHere) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          setDragOverStage(stage.key);
+        }}
+        onDragLeave={() => setDragOverStage((s) => (s === stage.key ? null : s))}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOverStage(null);
+          if (!draggedLead || draggedLead.stage === stage.key) {
+            setDraggedLead(null);
+            return;
+          }
+          if (stage.kind === "won") handleConvert(draggedLead);
+          else if (stage.kind === "lost") moveLeadStage(draggedLead.id, stage.key, "Marked lost from pipeline");
+          else moveLeadStage(draggedLead.id, stage.key);
+          setDraggedLead(null);
+        }}
+      >
+        {!fullWidth && (
+          <div className={`flex items-center justify-between border-t-2 ${stage.accent} pt-2`}>
+            <span className="text-sm font-semibold text-ink-800">{stage.label}</span>
+            <span className="rounded-full bg-ink-100 px-2 py-0.5 text-xs text-ink-600">{stageLeads.length}</span>
+          </div>
+        )}
+        <div
+          className={`flex flex-col gap-2 overflow-y-auto rounded-lg pr-1 transition-colors ${KANBAN_COLUMN_HEIGHT} ${
+            isDropTarget ? "bg-brand-blue-500/5 ring-2 ring-inset ring-brand-blue-400" : ""
+          }`}
+        >
+          {stageLeads.map((lead, i) => {
+            const draggable = lead.stage !== wonStageId && lead.stage !== lostStageId;
+            return (
+              <motion.div
+                key={lead.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: i * 0.03 }}
+              >
+                <Card
+                  draggable={draggable}
+                  onDragStart={(e) => {
+                    if (!draggable) return;
+                    setDraggedLead(lead);
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", lead.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedLead(null);
+                    setDragOverStage(null);
+                  }}
+                  className={`transition-shadow hover:shadow-md ${
+                    draggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+                  } ${draggedLead?.id === lead.id ? "opacity-40" : ""}`}
+                  onClick={() => setDetailLead(lead)}
+                >
+                  <CardContent className="space-y-2 p-3.5">
+                    <p className="text-sm font-medium text-ink-800">{lead.clientName}</p>
+                    <p className="text-xs text-ink-500">{lead.interestedUnit || "—"}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-brand-blue-600">{formatCurrency(lead.estimatedValue)}</span>
+                      <span className="text-[10px] text-ink-400">{lead.source}</span>
+                    </div>
+                    <div className="flex items-center gap-1 border-t border-ink-100 pt-1.5 text-[10px] text-ink-400">
+                      <Clock className="h-3 w-3" /> {formatDateTime(lead.createdAt)}
+                    </div>
+                    {lead.convertedToClientId && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/clients/${lead.convertedToClientId}`);
+                        }}
+                        className="flex items-center gap-1 text-[10px] font-medium text-brand-blue-600 hover:underline"
+                      >
+                        View Client <ArrowUpRight className="h-3 w-3" />
+                      </button>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            );
+          })}
+          {stageLeads.length === 0 && (
+            <div className="rounded-lg border border-dashed border-ink-100 px-3 py-6 text-center text-xs text-ink-300">
+              No leads
+            </div>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -438,7 +549,7 @@ export default function LeadsPipeline() {
                             type="button"
                             size="icon"
                             variant="ghost"
-                            className="mt-5 shrink-0 text-ink-400"
+                            className="mt-5 h-11 w-11 shrink-0 text-ink-400"
                             onClick={() => removeProductDraft(draft.key)}
                           >
                             <X className="h-3.5 w-3.5" />
@@ -601,106 +712,41 @@ export default function LeadsPipeline() {
 
         <TabsContent value="kanban">
           <FilterTransition filterKey={`${query}-${source}-${sortOrder}`}>
-          <div className="kanban-scroll flex gap-4 overflow-x-auto pb-4">
-            {stages.map((stage) => {
-              const stageLeads = filteredLeads.filter((l) => l.stage === stage.key);
-              const isDropTarget = dragOverStage === stage.key && draggedLead?.stage !== stage.key;
-              const canDropHere = draggedLead && draggedLead.stage !== stage.key;
-              return (
-                <div
-                  key={stage.key}
-                  className="flex w-[280px] shrink-0 flex-col gap-3"
-                  onDragOver={(e) => {
-                    if (!canDropHere) return;
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                    setDragOverStage(stage.key);
-                  }}
-                  onDragLeave={() => setDragOverStage((s) => (s === stage.key ? null : s))}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setDragOverStage(null);
-                    if (!draggedLead || draggedLead.stage === stage.key) {
-                      setDraggedLead(null);
-                      return;
-                    }
-                    if (stage.kind === "won") handleConvert(draggedLead);
-                    else if (stage.kind === "lost") moveLeadStage(draggedLead.id, stage.key, "Marked lost from pipeline");
-                    else moveLeadStage(draggedLead.id, stage.key);
-                    setDraggedLead(null);
-                  }}
-                >
-                  <div className={`flex items-center justify-between border-t-2 ${stage.accent} pt-2`}>
-                    <span className="text-sm font-semibold text-ink-800">{stage.label}</span>
-                    <span className="rounded-full bg-ink-100 px-2 py-0.5 text-xs text-ink-600">{stageLeads.length}</span>
-                  </div>
-                  <div
-                    className={`flex flex-col gap-2 overflow-y-auto rounded-lg pr-1 transition-colors ${KANBAN_COLUMN_HEIGHT} ${
-                      isDropTarget ? "bg-brand-blue-500/5 ring-2 ring-inset ring-brand-blue-400" : ""
-                    }`}
+          <div className="kanban-scroll hidden gap-4 overflow-x-auto pb-4 md:flex">
+            {stages.map((stage) => renderStageColumn(stage))}
+          </div>
+          <div className="md:hidden">
+            {stages.length > 0 && (
+              <>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setActiveStageIndex((i) => Math.max(0, i - 1))}
+                    disabled={activeStageIndex === 0}
+                    aria-label="Previous stage"
                   >
-                    {stageLeads.map((lead, i) => {
-                      const draggable = lead.stage !== wonStageId && lead.stage !== lostStageId;
-                      return (
-                        <motion.div
-                          key={lead.id}
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.2, delay: i * 0.03 }}
-                        >
-                          <Card
-                            draggable={draggable}
-                            onDragStart={(e) => {
-                              if (!draggable) return;
-                              setDraggedLead(lead);
-                              e.dataTransfer.effectAllowed = "move";
-                              e.dataTransfer.setData("text/plain", lead.id);
-                            }}
-                            onDragEnd={() => {
-                              setDraggedLead(null);
-                              setDragOverStage(null);
-                            }}
-                            className={`transition-shadow hover:shadow-md ${
-                              draggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
-                            } ${draggedLead?.id === lead.id ? "opacity-40" : ""}`}
-                            onClick={() => setDetailLead(lead)}
-                          >
-                            <CardContent className="space-y-2 p-3.5">
-                              <p className="text-sm font-medium text-ink-800">{lead.clientName}</p>
-                              <p className="text-xs text-ink-500">{lead.interestedUnit || "—"}</p>
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-brand-blue-600">{formatCurrency(lead.estimatedValue)}</span>
-                                <span className="text-[10px] text-ink-400">{lead.source}</span>
-                              </div>
-                              <div className="flex items-center gap-1 border-t border-ink-100 pt-1.5 text-[10px] text-ink-400">
-                                <Clock className="h-3 w-3" /> {formatDateTime(lead.createdAt)}
-                              </div>
-                              {lead.convertedToClientId && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    navigate(`/clients/${lead.convertedToClientId}`);
-                                  }}
-                                  className="flex items-center gap-1 text-[10px] font-medium text-brand-blue-600 hover:underline"
-                                >
-                                  View Client <ArrowUpRight className="h-3 w-3" />
-                                </button>
-                              )}
-                            </CardContent>
-                          </Card>
-                        </motion.div>
-                      );
-                    })}
-                    {stageLeads.length === 0 && (
-                      <div className="rounded-lg border border-dashed border-ink-100 px-3 py-6 text-center text-xs text-ink-300">
-                        No leads
-                      </div>
-                    )}
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <div className={`flex-1 border-t-2 text-center ${stages[activeStageIndex].accent} pt-2`}>
+                    <p className="text-sm font-semibold text-ink-800">{stages[activeStageIndex].label}</p>
+                    <p className="text-xs text-ink-500">
+                      Stage {activeStageIndex + 1} of {stages.length}
+                    </p>
                   </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setActiveStageIndex((i) => Math.min(stages.length - 1, i + 1))}
+                    disabled={activeStageIndex === stages.length - 1}
+                    aria-label="Next stage"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
                 </div>
-              );
-            })}
+                {renderStageColumn(stages[activeStageIndex], true)}
+              </>
+            )}
           </div>
           </FilterTransition>
         </TabsContent>
