@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, Navigate, Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -93,14 +93,6 @@ function formatDateTime(iso: string) {
 
 const clientSourceOptions: ClientSource[] = ["GMIC", "Imperial", "MegaSaver", "Alfamart"];
 
-const postWonProjectStatuses: ProjectStatus[] = [
-  "Phase 1 Installation",
-  "Phase 2 Installation",
-  "Financial",
-  "Collection",
-  "PMS",
-];
-
 function warrantyInfo(unit: Unit) {
   const expiresOn = addMonthsIso(unit.installDate, unit.warrantyMonths);
   const daysLeft = daysBetween(new Date().toISOString().slice(0, 10), expiresOn);
@@ -164,8 +156,15 @@ export default function ClientDetail() {
     updateClientProjectStatus,
     auditLog,
     logAudit,
+    pipelineStages,
+    leads,
   } = useCrmStore();
   const client = clients.find((c) => c.id === id);
+  const postWonProjectStatuses = useMemo(
+    () => pipelineStages.filter((s) => s.kind === "client" && s.status === "active").sort((a, b) => a.order - b.order),
+    [pipelineStages]
+  );
+  const convertedFromLead = client?.convertedFromLeadId ? leads.find((l) => l.id === client.convertedFromLeadId) : undefined;
 
   const [unitDialogOpen, setUnitDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -180,8 +179,7 @@ export default function ClientDetail() {
   });
 
   const [unitForm, setUnitForm] = useState({
-    serialIndoor: "",
-    serialOutdoor: "",
+    sku: "",
     model: "",
     brand: "",
     type: "Split Type" as Unit["type"],
@@ -299,8 +297,7 @@ export default function ClientDetail() {
     const matchesQuery =
       unitSearch === "" ||
       unit.model.toLowerCase().includes(unitSearch) ||
-      unit.serialIndoor.toLowerCase().includes(unitSearch) ||
-      unit.serialOutdoor.toLowerCase().includes(unitSearch) ||
+      unit.sku.toLowerCase().includes(unitSearch) ||
       unit.location.toLowerCase().includes(unitSearch);
     const matchesStatus =
       unitStatusFilter === "all" || unit.status === unitStatusFilter;
@@ -361,15 +358,13 @@ export default function ClientDetail() {
     if (!client) return;
     const model = linkedItem ? linkedItem.name : unitForm.model;
     const brand = linkedItem ? linkedItem.brand ?? "" : unitForm.brand;
-    const serialIndoor = linkedSerial ? linkedSerial.serialIndoor : unitForm.serialIndoor;
-    const serialOutdoor = linkedSerial ? linkedSerial.serialOutdoor ?? "" : unitForm.serialOutdoor;
-    if (!serialIndoor || !model) return;
+    const sku = linkedSerial ? linkedSerial.sku : unitForm.sku;
+    if (!sku || !model) return;
     addUnitToClient(client.id, {
       ...unitForm,
       model,
       brand: brand || undefined,
-      serialIndoor,
-      serialOutdoor,
+      sku,
       installDate: new Date().toISOString().slice(0, 10),
       status: "active",
     });
@@ -377,8 +372,7 @@ export default function ClientDetail() {
       markSerializedUnitInstalled(linkedItem.id, linkedSerial.id);
     }
     setUnitForm({
-      serialIndoor: "",
-      serialOutdoor: "",
+      sku: "",
       model: "",
       brand: "",
       type: "Split Type",
@@ -448,7 +442,7 @@ export default function ClientDetail() {
               <DialogHeader>
                 <DialogTitle>Add a unit to {client.name}</DialogTitle>
                 <DialogDescription>
-                  Each unit is tracked individually by serial number for
+                  Each unit is tracked individually by SKU for
                   accurate service reporting.
                 </DialogDescription>
               </DialogHeader>
@@ -479,12 +473,12 @@ export default function ClientDetail() {
                     <Label>Available unit</Label>
                     <Select value={linkedSerialId || undefined} onValueChange={setLinkedSerialId}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select a serial" />
+                        <SelectValue placeholder="Select a SKU" />
                       </SelectTrigger>
                       <SelectContent>
                         {availableSerials.map((su) => (
                           <SelectItem key={su.id} value={su.id}>
-                            {su.serialOutdoor ? `${su.serialIndoor} / ${su.serialOutdoor}` : su.serialIndoor}
+                            {su.sku}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -501,9 +495,9 @@ export default function ClientDetail() {
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Serial(s)</Label>
+                      <Label>SKU</Label>
                       <div className="flex h-9 items-center rounded-md border border-ink-100 bg-ink-50 px-3 text-sm text-ink-500">
-                        {linkedSerial ? (linkedSerial.serialOutdoor ? `${linkedSerial.serialIndoor} / ${linkedSerial.serialOutdoor}` : linkedSerial.serialIndoor) : "Select a serial above"}
+                        {linkedSerial ? linkedSerial.sku : "Select a SKU above"}
                       </div>
                     </div>
                     <div className="space-y-1.5">
@@ -544,33 +538,18 @@ export default function ClientDetail() {
                         </Select>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>Indoor Serial No.</Label>
-                        <Input
-                          value={unitForm.serialIndoor}
-                          onChange={(e) =>
-                            setUnitForm({
-                              ...unitForm,
-                              serialIndoor: e.target.value,
-                            })
-                          }
-                          placeholder="GMI-IN-00000"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>Outdoor Serial No.</Label>
-                        <Input
-                          value={unitForm.serialOutdoor}
-                          onChange={(e) =>
-                            setUnitForm({
-                              ...unitForm,
-                              serialOutdoor: e.target.value,
-                            })
-                          }
-                          placeholder="GMI-OUT-00000"
-                        />
-                      </div>
+                    <div className="space-y-1.5">
+                      <Label>SKU</Label>
+                      <Input
+                        value={unitForm.sku}
+                        onChange={(e) =>
+                          setUnitForm({
+                            ...unitForm,
+                            sku: e.target.value,
+                          })
+                        }
+                        placeholder="GMI-00000"
+                      />
                     </div>
                   </>
                 )}
@@ -683,6 +662,11 @@ export default function ClientDetail() {
                   ? formatDate(client.dateOfEngagement)
                   : "Not yet engaged"}
               </div>
+              {convertedFromLead && (
+                <p className="text-xs text-ink-400">
+                  Converted from Lead · {convertedFromLead.source}
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-2 text-sm text-ink-700">
               <Tag className="h-4 w-4 shrink-0 text-ink-400" />
@@ -711,7 +695,7 @@ export default function ClientDetail() {
                 </SelectTrigger>
                 <SelectContent>
                   {postWonProjectStatuses.map((s) => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                    <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -869,7 +853,7 @@ export default function ClientDetail() {
             <EmptyState
               icon={Snowflake}
               title="No units on record"
-              description="Add the client's first unit to start tracking service history by serial number."
+              description="Add the client's first unit to start tracking service history by SKU."
             />
           ) : (
             <div className="space-y-4">
@@ -879,7 +863,7 @@ export default function ClientDetail() {
                   <Input
                     value={unitQuery}
                     onChange={(e) => setUnitQuery(e.target.value)}
-                    placeholder="Search by model, serial, or location..."
+                    placeholder="Search by model, SKU, or location..."
                     className="pl-9"
                   />
                 </div>
@@ -981,15 +965,9 @@ export default function ClientDetail() {
                               </p>
                             </div>
                             <div>
-                              <p className="text-ink-400">Indoor S/N</p>
+                              <p className="text-ink-400">SKU</p>
                               <p className="font-medium text-ink-800">
-                                {unit.serialIndoor}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-ink-400">Outdoor S/N</p>
-                              <p className="font-medium text-ink-800">
-                                {unit.serialOutdoor}
+                                {unit.sku}
                               </p>
                             </div>
                             <div>

@@ -15,31 +15,32 @@ import { CHART_COLORS, nivoTheme } from "@/lib/nivo-theme";
 import { mockUsers } from "@/data/users";
 
 export default function Dashboard() {
-  const { clients, leads, invoices, schedule, activity } = useCrmStore();
+  const { clients, leads, invoices, schedule, activity, pipelineStages } = useCrmStore();
   const currentUser = useAuthStore((s) => s.currentUser);
+
+  const stageById = useMemo(() => new Map(pipelineStages.map((s) => [s.id, s])), [pipelineStages]);
+  const isWonOrLost = (stageId: string) => {
+    const kind = stageById.get(stageId)?.kind;
+    return kind === "won" || kind === "lost";
+  };
 
   const stats = useMemo(() => {
     const totalOutstanding = clients.reduce((sum, c) => sum + c.balance, 0);
-    const activeLeads = leads.filter((l) => l.stage !== "Project Won" && l.stage !== "Project Lost").length;
+    const activeLeads = leads.filter((l) => !isWonOrLost(l.stage)).length;
     const totalUnits = clients.reduce((sum, c) => sum + c.units.length, 0);
-    const wonValue = leads.filter((l) => l.stage === "Project Won").reduce((s, l) => s + l.estimatedValue, 0);
+    const wonValue = leads.filter((l) => stageById.get(l.stage)?.kind === "won").reduce((s, l) => s + l.estimatedValue, 0);
     return { totalOutstanding, activeLeads, totalUnits, wonValue };
-  }, [clients, leads]);
+  }, [clients, leads, stageById]);
 
   const pipelineData = useMemo(() => {
-    const stages: { key: string; label: string }[] = [
-      { key: "Inquiry", label: "Inquiry" },
-      { key: "Site Visit", label: "Site Visit" },
-      { key: "Quotation", label: "Quotation" },
-      { key: "Follow-Up", label: "Follow-Up" },
-      { key: "Project Won", label: "Won" },
-      { key: "Project Lost", label: "Lost" },
-    ];
-    return stages.map((s) => ({
-      name: s.label,
-      value: leads.filter((l) => l.stage === s.key).length,
+    const chartStages = pipelineStages
+      .filter((s) => (s.kind === "lead" || s.kind === "won" || s.kind === "lost") && s.status === "active")
+      .sort((a, b) => a.order - b.order);
+    return chartStages.map((s) => ({
+      name: s.kind === "won" ? "Won" : s.kind === "lost" ? "Lost" : s.label,
+      value: leads.filter((l) => l.stage === s.id).length,
     }));
-  }, [leads]);
+  }, [leads, pipelineStages]);
 
   const upcomingJobs = schedule
     .filter((j) => j.status === "scheduled")
@@ -146,7 +147,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {leads.filter((l) => l.stage !== "Project Won" && l.stage !== "Project Lost").length > 0 && (
+        {leads.filter((l) => !isWonOrLost(l.stage)).length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Leads Needing Attention</CardTitle>
@@ -154,7 +155,7 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="space-y-2">
               {leads
-                .filter((l) => l.stage !== "Project Won" && l.stage !== "Project Lost")
+                .filter((l) => !isWonOrLost(l.stage))
                 .slice(0, 4)
                 .map((lead) => (
                   <div

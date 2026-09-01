@@ -145,7 +145,7 @@ const confirmCopy: Record<
 
 export default function MyJobs() {
   const currentUser = useAuthStore((s) => s.currentUser);
-  const { schedule, leads, updateJobStatus, logAdditionalMaterials, addSurveyReport, moveLeadStage, claimJob, addJobNote } =
+  const { schedule, leads, updateJobStatus, logAdditionalMaterials, addSurveyReport, claimJob, addJobNote } =
     useCrmStore();
   const [activeJob, setActiveJob] = useState<ScheduleJob | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(
@@ -355,7 +355,6 @@ export default function MyJobs() {
         recommendedUnits: surveyForm.recommendedUnits,
         photos: surveyPhotos,
       });
-      if (lead.stage === "Inquiry") moveLeadStage(lead.id, "Site Visit");
     }
     updateJobStatus(activeJob.id, "completed");
     setSurveyOpen(false);

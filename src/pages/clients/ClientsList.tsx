@@ -45,26 +45,11 @@ const clientSourceOptions: ClientSource[] = ["GMIC", "Imperial", "MegaSaver", "A
 const CLIENT_CSV_HEADERS = ["name", "phone", "email", "address", "tags", "status"];
 
 const statusFilters: (ClientStatus | "all")[] = ["all", "active", "lead", "inactive", "archived"];
-const projectStatusFilters: (ProjectStatus | "all")[] = [
-  "all",
-  "Inquiry",
-  "Site Visit",
-  "Quotation",
-  "Follow-Up",
-  "Project Won",
-  "Project Lost",
-  "Phase 1 Installation",
-  "Phase 2 Installation",
-  "Financial",
-  "Collection",
-  "PMS",
-];
 type UnitDraft = Omit<Unit, "id" | "serviceHistory"> & { key: string };
 function emptyUnitDraft(): UnitDraft {
   return {
     key: `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    serialIndoor: "",
-    serialOutdoor: "",
+    sku: "",
     model: "",
     brand: "",
     type: "Split Type",
@@ -80,8 +65,7 @@ const emptyForm = { name: "", phone: "", email: "", address: "", source: "" as C
 function unitDraftFromExisting(unit: Unit): UnitDraft {
   return {
     key: `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    serialIndoor: unit.serialIndoor,
-    serialOutdoor: unit.serialOutdoor,
+    sku: unit.sku,
     model: unit.model,
     brand: unit.brand ?? "",
     type: unit.type,
@@ -111,10 +95,14 @@ const sortOptions: { key: ClientSortBy; label: string }[] = [
 
 export default function ClientsList() {
   const navigate = useNavigate();
-  const { clients, addClient, updateClient, archiveClient, restoreClient, auditLog, brands } = useCrmStore();
+  const { clients, addClient, updateClient, archiveClient, restoreClient, auditLog, brands, pipelineStages } = useCrmStore();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<(typeof statusFilters)[number]>("all");
-  const [projectStatus, setProjectStatus] = useState<(typeof projectStatusFilters)[number]>("all");
+  const [projectStatus, setProjectStatus] = useState<ProjectStatus | "all">("all");
+  const projectStatusFilters = useMemo(
+    () => ["all", ...pipelineStages.filter((s) => s.status === "active").sort((a, b) => a.order - b.order).map((s) => s.id)] as (ProjectStatus | "all")[],
+    [pipelineStages]
+  );
   const [searchFields, setSearchFields] = useState<Set<ClientSearchField>>(
     new Set(["name", "phone", "email", "address"])
   );
@@ -268,7 +256,7 @@ export default function ClientsList() {
       });
     } else {
       const units = form.units
-        .filter((u) => u.model && u.serialIndoor)
+        .filter((u) => u.model && u.sku)
         .map(({ key, ...unit }) => unit);
       const newClientId = addClient({
         name: form.name,
@@ -402,12 +390,12 @@ export default function ClientsList() {
                           <SelectContent>
                             {allExistingUnits.map(({ unit, clientName, key }) => (
                               <SelectItem key={key} value={key}>
-                                {unit.model || "Unnamed unit"} · IN {unit.serialIndoor || "—"} / OUT {unit.serialOutdoor || "—"} ({clientName})
+                                {unit.model || "Unnamed unit"} · SKU {unit.sku || "—"} ({clientName})
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
-                        <p className="text-xs text-ink-400">Selecting a unit copies its serials and details into this client's unit list.</p>
+                        <p className="text-xs text-ink-400">Selecting a unit copies its SKU and details into this client's unit list.</p>
                       </div>
                     )}
                     {form.units.length > 0 && (
@@ -446,19 +434,11 @@ export default function ClientsList() {
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                               <div className="space-y-1">
-                                <Label className="text-xs">Indoor serial</Label>
+                                <Label className="text-xs">SKU</Label>
                                 <Input
-                                  value={unit.serialIndoor}
-                                  onChange={(e) => updateUnitDraft(unit.key, { serialIndoor: e.target.value })}
-                                  placeholder="Indoor serial"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Outdoor serial</Label>
-                                <Input
-                                  value={unit.serialOutdoor}
-                                  onChange={(e) => updateUnitDraft(unit.key, { serialOutdoor: e.target.value })}
-                                  placeholder="Outdoor serial"
+                                  value={unit.sku}
+                                  onChange={(e) => updateUnitDraft(unit.key, { sku: e.target.value })}
+                                  placeholder="SKU"
                                 />
                               </div>
                             </div>

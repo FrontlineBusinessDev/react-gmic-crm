@@ -61,7 +61,7 @@ export default function Login() {
           </p>
           <ul className="mt-8 space-y-3 text-sm text-white/90">
             <li className="flex items-center gap-2">
-              <ArrowRight className="h-4 w-4 shrink-0" /> Track every unit by serial number, indoors and out
+              <ArrowRight className="h-4 w-4 shrink-0" /> Track every unit by SKU
             </li>
             <li className="flex items-center gap-2">
               <ArrowRight className="h-4 w-4 shrink-0" /> Full inquiry-to-installation sales pipeline

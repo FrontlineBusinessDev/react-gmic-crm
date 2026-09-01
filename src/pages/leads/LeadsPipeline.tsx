@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, Phone, Mail, MapPin, FileText, ArrowRight, UserCheck, Search, X, Clock, ArrowUpDown, LayoutGrid, LayoutList } from "lucide-react";
+import { Plus, Phone, Mail, MapPin, FileText, ArrowRight, ArrowUpRight, UserCheck, Search, X, Clock, ArrowUpDown, LayoutGrid, LayoutList, Settings2, Pencil, Archive, ArchiveRestore, ChevronUp, ChevronDown } from "lucide-react";
 import { FilterButton } from "@/components/shared/filter-button";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,22 +32,51 @@ import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import type { Client, Lead, ProjectStatus } from "@/types";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-const stages: { key: ProjectStatus; label: string; accent: string }[] = [
-  { key: "Inquiry", label: "Inquiry", accent: "border-t-ink-300" },
-  { key: "Site Visit", label: "Site Visit", accent: "border-t-brand-cyan-500" },
-  { key: "Quotation", label: "Quotation", accent: "border-t-brand-cyan-500" },
-  { key: "Follow-Up", label: "Follow-Up", accent: "border-t-amber-500" },
-  { key: "Project Won", label: "Project Won", accent: "border-t-brand-green-500" },
-  { key: "Project Lost", label: "Project Lost", accent: "border-t-brand-crimson-500" },
-];
-
 const sources: (Lead["source"] | "all")[] = ["all", "Facebook Messenger", "Referral", "Walk-in", "Website", "Phone Call"];
-const stageFilters: (ProjectStatus | "all")[] = ["all", "Inquiry", "Site Visit", "Quotation", "Follow-Up", "Project Won", "Project Lost"];
 // Sized to show exactly 4 lead cards (128px each, 8px gap) before scrolling.
 const KANBAN_COLUMN_HEIGHT = "max-h-[536px]";
 
 export default function LeadsPipeline() {
-  const { leads, clients, addLead, moveLeadStage, convertLeadToClient } = useCrmStore();
+  const {
+    leads,
+    clients,
+    addLead,
+    moveLeadStage,
+    convertLeadToClient,
+    pipelineStages,
+    addPipelineStage,
+    updatePipelineStage,
+    archivePipelineStage,
+    restorePipelineStage,
+    movePipelineStage,
+  } = useCrmStore();
+
+  const stages = useMemo(
+    () =>
+      pipelineStages
+        .filter((s) => (s.kind === "lead" || s.kind === "won" || s.kind === "lost") && s.status === "active")
+        .sort((a, b) => a.order - b.order)
+        .map((s) => ({ key: s.id, label: s.label, accent: s.accent, kind: s.kind })),
+    [pipelineStages]
+  );
+  const stageFilters = useMemo(() => ["all" as const, ...stages.map((s) => s.key)], [stages]);
+  const wonStageId = useMemo(() => pipelineStages.find((s) => s.kind === "won")?.id, [pipelineStages]);
+  const lostStageId = useMemo(() => pipelineStages.find((s) => s.kind === "lost")?.id, [pipelineStages]);
+  const clientStages = useMemo(
+    () => pipelineStages.filter((s) => s.kind === "client").sort((a, b) => a.order - b.order),
+    [pipelineStages]
+  );
+
+  const [stageManagerOpen, setStageManagerOpen] = useState(false);
+  const [stageEditId, setStageEditId] = useState<string | null>(null);
+  const [stageEditLabel, setStageEditLabel] = useState("");
+  const [newLeadStageLabel, setNewLeadStageLabel] = useState("");
+  const [newClientStageLabel, setNewClientStageLabel] = useState("");
+
+  function saveStageRename(id: string) {
+    if (stageEditLabel.trim()) updatePipelineStage(id, { label: stageEditLabel.trim() });
+    setStageEditId(null);
+  }
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [addOpen, setAddOpen] = useState(false);
@@ -152,6 +181,8 @@ export default function LeadsPipeline() {
     setSortOrder("newest");
   }
 
+  const firstLeadStageId = stages.find((s) => s.kind === "lead")?.key ?? "Inquiry";
+
   function handleAdd() {
     if (!form.clientName || !form.phone) return;
     addLead({
@@ -162,7 +193,7 @@ export default function LeadsPipeline() {
       source: form.source,
       interestedUnit: form.interestedUnit,
       estimatedValue: Number(form.estimatedValue) || 0,
-      stage: "Inquiry",
+      stage: firstLeadStageId,
       assignedTo: "u-admin",
       notes: form.notes,
     });
@@ -182,7 +213,7 @@ export default function LeadsPipeline() {
       moveLeadStage(pendingAction.lead.id, pendingAction.toStage);
       if (detailLead?.id === pendingAction.lead.id) setDetailLead({ ...detailLead, stage: pendingAction.toStage });
     } else if (pendingAction.kind === "lost") {
-      moveLeadStage(pendingAction.lead.id, "Project Lost", "Marked lost from pipeline");
+      if (lostStageId) moveLeadStage(pendingAction.lead.id, lostStageId, "Marked lost from pipeline");
       setDetailLead(null);
     } else if (pendingAction.kind === "convert") {
       handleConvert(pendingAction.lead);
@@ -196,6 +227,10 @@ export default function LeadsPipeline() {
         title="Leads Pipeline"
         description="Inquiry → Survey → Proposal → Won or Lost."
         actions={
+          <>
+          <Button variant="outline" onClick={() => setStageManagerOpen(true)}>
+            <Settings2 className="h-3.5 w-3.5" /> Manage Stages
+          </Button>
           <Dialog
             open={addOpen}
             onOpenChange={(o) => {
@@ -209,7 +244,9 @@ export default function LeadsPipeline() {
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Add a new lead</DialogTitle>
-                <DialogDescription>Captured leads start in the Inquiry stage.</DialogDescription>
+                <DialogDescription>
+                  Captured leads start in the {stages.find((s) => s.key === firstLeadStageId)?.label ?? "first"} stage.
+                </DialogDescription>
               </DialogHeader>
 
               <Tabs
@@ -328,6 +365,7 @@ export default function LeadsPipeline() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </>
         }
       />
 
@@ -419,8 +457,8 @@ export default function LeadsPipeline() {
                       setDraggedLead(null);
                       return;
                     }
-                    if (stage.key === "Project Won") setPendingAction({ kind: "convert", lead: draggedLead });
-                    else if (stage.key === "Project Lost") setPendingAction({ kind: "lost", lead: draggedLead });
+                    if (stage.kind === "won") setPendingAction({ kind: "convert", lead: draggedLead });
+                    else if (stage.kind === "lost") setPendingAction({ kind: "lost", lead: draggedLead });
                     else setPendingAction({ kind: "move", lead: draggedLead, toStage: stage.key, toLabel: stage.label });
                     setDraggedLead(null);
                   }}
@@ -435,7 +473,7 @@ export default function LeadsPipeline() {
                     }`}
                   >
                     {stageLeads.map((lead, i) => {
-                      const draggable = lead.stage !== "Project Won" && lead.stage !== "Project Lost";
+                      const draggable = lead.stage !== wonStageId && lead.stage !== lostStageId;
                       return (
                         <motion.div
                           key={lead.id}
@@ -470,6 +508,18 @@ export default function LeadsPipeline() {
                               <div className="flex items-center gap-1 border-t border-ink-100 pt-1.5 text-[10px] text-ink-400">
                                 <Clock className="h-3 w-3" /> {formatDateTime(lead.createdAt)}
                               </div>
+                              {lead.convertedToClientId && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(`/clients/${lead.convertedToClientId}`);
+                                  }}
+                                  className="flex items-center gap-1 text-[10px] font-medium text-brand-blue-600 hover:underline"
+                                >
+                                  View Client <ArrowUpRight className="h-3 w-3" />
+                                </button>
+                              )}
                             </CardContent>
                           </Card>
                         </motion.div>
@@ -587,13 +637,23 @@ export default function LeadsPipeline() {
                     <p className="mt-1">{detailLead.lostReason}</p>
                   </div>
                 )}
+
+                {detailLead.convertedToClientId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate(`/clients/${detailLead.convertedToClientId}`)}
+                  >
+                    View Client <ArrowUpRight className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
 
               <DialogFooter className="flex-wrap gap-2">
-                {detailLead.stage !== "Project Won" && detailLead.stage !== "Project Lost" && (
+                {detailLead.stage !== wonStageId && detailLead.stage !== lostStageId && (
                   <>
                     {stages
-                      .filter((s) => s.key !== detailLead.stage && s.key !== "Project Lost" && s.key !== "Project Won")
+                      .filter((s) => s.key !== detailLead.stage && s.kind === "lead")
                       .map((s) => (
                         <Button
                           key={s.key}
@@ -648,6 +708,191 @@ export default function LeadsPipeline() {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={stageManagerOpen} onOpenChange={setStageManagerOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manage pipeline stages</DialogTitle>
+            <DialogDescription>
+              Rename, reorder, add, or archive stages. Won and Lost are fixed (needed for lead conversion) and can't be archived.
+              Archiving is blocked while a lead or client is currently on that stage.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">Lead stages</p>
+              <div className="space-y-1.5">
+                {[...stages].map((s, i) => (
+                  <div key={s.key} className="flex items-center gap-1.5 rounded-lg border border-ink-100 p-2">
+                    <div className="flex flex-col">
+                      <button
+                        type="button"
+                        disabled={s.kind !== "lead" || i === 0}
+                        onClick={() => movePipelineStage(s.key, "up")}
+                        className="text-ink-400 hover:text-ink-700 disabled:opacity-30"
+                      >
+                        <ChevronUp className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={s.kind !== "lead" || i === stages.length - 1}
+                        onClick={() => movePipelineStage(s.key, "down")}
+                        className="text-ink-400 hover:text-ink-700 disabled:opacity-30"
+                      >
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    </div>
+                    {stageEditId === s.key ? (
+                      <Input
+                        autoFocus
+                        value={stageEditLabel}
+                        onChange={(e) => setStageEditLabel(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && saveStageRename(s.key)}
+                        className="flex-1"
+                      />
+                    ) : (
+                      <span className="flex-1 text-sm text-ink-700">
+                        {s.label}
+                        {(s.kind === "won" || s.kind === "lost") && (
+                          <span className="ml-1.5 text-xs text-ink-400">({s.kind})</span>
+                        )}
+                      </span>
+                    )}
+                    {stageEditId === s.key ? (
+                      <Button size="sm" variant="outline" onClick={() => saveStageRename(s.key)}>Save</Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setStageEditId(s.key);
+                          setStageEditLabel(s.label);
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {s.kind !== "won" && s.kind !== "lost" && (
+                      <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => archivePipelineStage(s.key)}>
+                        <Archive className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                {pipelineStages
+                  .filter((s) => s.kind === "lead" && s.status === "archived")
+                  .map((s) => (
+                    <div key={s.id} className="flex items-center gap-1.5 rounded-lg border border-ink-100 p-2">
+                      <span className="flex-1 text-sm text-ink-400">{s.label} (archived)</span>
+                      <Button size="sm" variant="ghost" className="text-brand-green-600" onClick={() => restorePipelineStage(s.id)}>
+                        <ArchiveRestore className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+              <div className="mt-1.5 flex items-center gap-2">
+                <Input value={newLeadStageLabel} onChange={(e) => setNewLeadStageLabel(e.target.value)} placeholder="New lead stage name" />
+                <Button
+                  variant="outline"
+                  disabled={!newLeadStageLabel.trim()}
+                  onClick={() => {
+                    addPipelineStage({ label: newLeadStageLabel.trim(), kind: "lead" });
+                    setNewLeadStageLabel("");
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">Client stages (post-Won)</p>
+              <div className="space-y-1.5">
+                {clientStages
+                  .filter((s) => s.status === "active")
+                  .map((s, i, arr) => (
+                    <div key={s.id} className="flex items-center gap-1.5 rounded-lg border border-ink-100 p-2">
+                      <div className="flex flex-col">
+                        <button
+                          type="button"
+                          disabled={i === 0}
+                          onClick={() => movePipelineStage(s.id, "up")}
+                          className="text-ink-400 hover:text-ink-700 disabled:opacity-30"
+                        >
+                          <ChevronUp className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={i === arr.length - 1}
+                          onClick={() => movePipelineStage(s.id, "down")}
+                          className="text-ink-400 hover:text-ink-700 disabled:opacity-30"
+                        >
+                          <ChevronDown className="h-3 w-3" />
+                        </button>
+                      </div>
+                      {stageEditId === s.id ? (
+                        <Input
+                          autoFocus
+                          value={stageEditLabel}
+                          onChange={(e) => setStageEditLabel(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && saveStageRename(s.id)}
+                          className="flex-1"
+                        />
+                      ) : (
+                        <span className="flex-1 text-sm text-ink-700">{s.label}</span>
+                      )}
+                      {stageEditId === s.id ? (
+                        <Button size="sm" variant="outline" onClick={() => saveStageRename(s.id)}>Save</Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setStageEditId(s.id);
+                            setStageEditLabel(s.label);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => archivePipelineStage(s.id)}>
+                        <Archive className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                {clientStages
+                  .filter((s) => s.status === "archived")
+                  .map((s) => (
+                    <div key={s.id} className="flex items-center gap-1.5 rounded-lg border border-ink-100 p-2">
+                      <span className="flex-1 text-sm text-ink-400">{s.label} (archived)</span>
+                      <Button size="sm" variant="ghost" className="text-brand-green-600" onClick={() => restorePipelineStage(s.id)}>
+                        <ArchiveRestore className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+              <div className="mt-1.5 flex items-center gap-2">
+                <Input value={newClientStageLabel} onChange={(e) => setNewClientStageLabel(e.target.value)} placeholder="New client stage name" />
+                <Button
+                  variant="outline"
+                  disabled={!newClientStageLabel.trim()}
+                  onClick={() => {
+                    addPipelineStage({ label: newClientStageLabel.trim(), kind: "client" });
+                    setNewClientStageLabel("");
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStageManagerOpen(false)}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

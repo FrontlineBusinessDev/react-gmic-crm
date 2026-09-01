@@ -36,8 +36,7 @@ export type UnitStatus = "active" | "under_warranty" | "warranty_expired" | "nee
 
 export interface Unit {
   id: string;
-  serialIndoor: string;
-  serialOutdoor: string;
+  sku: string;
   model: string;
   brand?: string; // matches BrandDefinition.name
   type: "Window Type" | "Split Type" | "Cassette" | "Floor Standing" | "Package AC";
@@ -68,18 +67,32 @@ export type ClientSource = "GMIC" | "Imperial" | "MegaSaver" | "Alfamart";
 // Unified status spanning a client's full lifecycle, from first inquiry through
 // PMS. Pre-conversion, this drives Lead.stage / the leads kanban; post-conversion
 // it's carried on Client.projectStatus and advanced manually from the client page.
-export type ProjectStatus =
-  | "Inquiry"
-  | "Site Visit"
-  | "Quotation"
-  | "Follow-Up"
-  | "Project Won"
-  | "Project Lost"
-  | "Phase 1 Installation"
-  | "Phase 2 Installation"
-  | "Financial"
-  | "Collection"
-  | "PMS";
+//
+// ProjectStatus is a free-form id resolved against PipelineStageDefinition[] at
+// runtime — same "managed list" convention as Role/InventoryCategory — so stages
+// can be added/renamed/reordered/archived from the Leads Pipeline page without
+// touching this type.
+export type ProjectStatus = string;
+
+// "lead" stages render as Leads Pipeline kanban columns; exactly one "won" and one
+// "lost" stage exist at all times and are structurally load-bearing (drag-to-Won
+// triggers lead-to-client conversion, drag-to-Lost triggers the lost-reason flow) —
+// they cannot be archived. "client" stages render only in a client's post-Won
+// progression (Phase 1 Installation onward).
+export type PipelineStageKind = "lead" | "won" | "lost" | "client";
+export type PipelineStageStatus = "active" | "archived";
+
+export interface PipelineStageDefinition {
+  id: string;
+  label: string;
+  kind: PipelineStageKind;
+  order: number;
+  /** Tailwind border-color class used for the kanban column's top accent bar. */
+  accent: string;
+  /** Badge color variant used wherever this stage is rendered as a status badge. */
+  variant: "secondary" | "info" | "warning" | "success" | "destructive";
+  status: PipelineStageStatus;
+}
 
 export interface Client {
   id: string;
@@ -98,6 +111,8 @@ export interface Client {
   totalBilled: number;
   totalPaid: number;
   tags: string[];
+  /** Set when this client originated from a converted Lead. */
+  convertedFromLeadId?: string;
 }
 
 // ---------- Leads / Pipeline ----------
@@ -118,6 +133,8 @@ export interface Lead {
   notes: string;
   surveyReport?: SurveyReport;
   lostReason?: string;
+  /** Set once this lead is converted to a Client. */
+  convertedToClientId?: string;
 }
 
 export interface SurveyReport {
@@ -196,8 +213,7 @@ export interface Supplier {
 
 export interface SerializedStockUnit {
   id: string;
-  serialIndoor: string;
-  serialOutdoor?: string;
+  sku: string;
   status: "in_stock" | "reserved" | "installed";
 }
 
@@ -353,18 +369,13 @@ export interface NotificationItem {
 
 // ---------- Purchase Batches ----------
 
-export interface SerialPair {
-  serialIndoor: string;
-  serialOutdoor?: string;
-}
-
 export interface PurchaseBatchLine {
   id: string;
   inventoryItemId: string;
   itemName: string; // snapshot at batch time
   quantity: number;
   unitCost: number;
-  serials?: SerialPair[]; // per-unit serial pairs, for categories that track them
+  skus?: string[]; // per-unit SKUs, for categories that track them
 }
 
 export type PurchaseBatchStatus = "open" | "received" | "cancelled";
@@ -398,7 +409,8 @@ export type AuditModule =
   | "supplier"
   | "user"
   | "role"
-  | "reorderRequest";
+  | "reorderRequest"
+  | "pipelineStage";
 
 export interface AuditFieldChange {
   field: string;

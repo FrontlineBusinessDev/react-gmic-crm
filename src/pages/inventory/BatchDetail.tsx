@@ -28,8 +28,8 @@ import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { formatCurrency } from "@/lib/utils";
 
-function formatSerialPairs(serials: { serialIndoor: string; serialOutdoor?: string }[]) {
-  return serials.map((p) => (p.serialOutdoor ? `${p.serialIndoor} / ${p.serialOutdoor}` : p.serialIndoor)).join(", ");
+function formatSkus(skus: string[]) {
+  return skus.join(", ");
 }
 
 const sortFields = [
@@ -449,8 +449,8 @@ export default function BatchDetail() {
                     <MobileListRow label="Quantity">{line.quantity}</MobileListRow>
                     <MobileListRow label="Unit Cost">{formatCurrency(line.unitCost)}</MobileListRow>
                     <MobileListRow label="Line Total">{formatCurrency(line.quantity * line.unitCost)}</MobileListRow>
-                    {line.serials && line.serials.length > 0 && (
-                      <MobileListRow label="Serials">{formatSerialPairs(line.serials)}</MobileListRow>
+                    {line.skus && line.skus.length > 0 && (
+                      <MobileListRow label="SKUs">{formatSkus(line.skus)}</MobileListRow>
                     )}
                   </MobileListCard>
                 ))}
@@ -464,7 +464,7 @@ export default function BatchDetail() {
                       <TableHead>Quantity</TableHead>
                       <TableHead>Unit Cost</TableHead>
                       <TableHead>Line Total</TableHead>
-                      <TableHead>Serials</TableHead>
+                      <TableHead>SKUs</TableHead>
                       {batch.status === "open" && <TableHead className="text-right">Actions</TableHead>}
                     </TableRow>
                   </TableHeader>
@@ -476,7 +476,7 @@ export default function BatchDetail() {
                         <TableCell>{line.quantity}</TableCell>
                         <TableCell>{formatCurrency(line.unitCost)}</TableCell>
                         <TableCell>{formatCurrency(line.quantity * line.unitCost)}</TableCell>
-                        <TableCell className="text-sm text-ink-600">{line.serials && line.serials.length > 0 ? formatSerialPairs(line.serials) : "—"}</TableCell>
+                        <TableCell className="text-sm text-ink-600">{line.skus && line.skus.length > 0 ? formatSkus(line.skus) : "—"}</TableCell>
                         {batch.status === "open" && (
                           <TableCell className="text-right">
                             <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditLine(line)}>

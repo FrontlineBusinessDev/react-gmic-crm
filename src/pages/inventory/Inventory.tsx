@@ -31,7 +31,7 @@ import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { formatCurrency } from "@/lib/utils";
-import type { InventoryCategory, InventoryItem, InventoryStatus, ReorderRequest, ReorderRequestStatus, DeliveryProof, BomLine, PurchaseBatchLine, SerialPair } from "@/types";
+import type { InventoryCategory, InventoryItem, InventoryStatus, ReorderRequest, ReorderRequestStatus, DeliveryProof, BomLine, PurchaseBatchLine } from "@/types";
 
 const INVENTORY_CSV_HEADERS = ["sku", "name", "category", "brand", "quantityOnHand", "reorderLevel", "unitCost", "unitPrice", "supplier"];
 
@@ -53,11 +53,9 @@ function cancelEmailTemplate(itemName: string, sku: string, qty: number) {
   };
 }
 
-// Zips comma-separated indoor/outdoor serial lists by position into serial pairs.
-function buildSerialPairs(indoorInput: string, outdoorInput: string): SerialPair[] {
-  const indoors = indoorInput.split(",").map((s) => s.trim()).filter(Boolean);
-  const outdoors = outdoorInput.split(",").map((s) => s.trim()).filter(Boolean);
-  return indoors.map((serialIndoor, i) => ({ serialIndoor, serialOutdoor: outdoors[i] || undefined }));
+// Splits a comma-separated SKU list into individual SKU strings.
+function parseSkus(skusInput: string): string[] {
+  return skusInput.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 const statusFilters: (InventoryStatus | "all")[] = ["all", "active", "archived"];
@@ -76,7 +74,7 @@ const emptyForm = {
 };
 const emptyBatchForm = {
   supplier: "",
-  lines: [] as (Omit<PurchaseBatchLine, "id"> & { key: string; serialsIndoorInput: string; serialsOutdoorInput: string })[],
+  lines: [] as (Omit<PurchaseBatchLine, "id"> & { key: string; skusInput: string })[],
 };
 
 export default function Inventory() {
@@ -196,7 +194,7 @@ export default function Inventory() {
   const [selectedRequestIds, setSelectedRequestIds] = useState<Set<string>>(new Set());
   const [convertOpen, setConvertOpen] = useState(false);
   const [convertLines, setConvertLines] = useState<
-    (Omit<PurchaseBatchLine, "id"> & { key: string; requestId: string; serialsIndoorInput: string; serialsOutdoorInput: string })[]
+    (Omit<PurchaseBatchLine, "id"> & { key: string; requestId: string; skusInput: string })[]
   >([]);
 
   const inventoryAuditEntries = useMemo(
@@ -340,8 +338,7 @@ export default function Inventory() {
           itemName: req.itemName,
           quantity: req.quantityRequested,
           unitCost: item?.unitCost ?? 0,
-          serialsIndoorInput: "",
-          serialsOutdoorInput: "",
+          skusInput: "",
         };
       })
     );
@@ -362,7 +359,7 @@ export default function Inventory() {
         itemName: l.itemName,
         quantity: l.quantity,
         unitCost: l.unitCost,
-        serials: buildSerialPairs(l.serialsIndoorInput, l.serialsOutdoorInput),
+        skus: parseSkus(l.skusInput),
       })),
     });
     linkReorderRequestsToBatch(requestIds, batchId);
@@ -511,7 +508,7 @@ export default function Inventory() {
     if (!first) return;
     setBatchForm((f) => ({
       ...f,
-      lines: [...f.lines, { key: `bl-${Date.now()}`, inventoryItemId: first.id, itemName: first.name, quantity: 1, unitCost: first.unitCost, serialsIndoorInput: "", serialsOutdoorInput: "" }],
+      lines: [...f.lines, { key: `bl-${Date.now()}`, inventoryItemId: first.id, itemName: first.name, quantity: 1, unitCost: first.unitCost, skusInput: "" }],
     }));
   }
 
@@ -532,7 +529,7 @@ export default function Inventory() {
         itemName: l.itemName,
         quantity: l.quantity,
         unitCost: l.unitCost,
-        serials: buildSerialPairs(l.serialsIndoorInput, l.serialsOutdoorInput),
+        skus: parseSkus(l.skusInput),
       })),
     });
     setBatchForm(emptyBatchForm);
@@ -928,7 +925,7 @@ export default function Inventory() {
 
         <TabsContent value="batches" className="space-y-6">
           {purchaseBatches.length === 0 ? (
-            <EmptyState icon={PackageOpen} title="No purchase batches yet" description="Record a batch to track cost and serials for a supplier delivery." />
+            <EmptyState icon={PackageOpen} title="No purchase batches yet" description="Record a batch to track cost and SKUs for a supplier delivery." />
           ) : (
             <Card>
               <MobileList>
@@ -1423,7 +1420,7 @@ export default function Inventory() {
             <DialogTitle>Convert to batch</DialogTitle>
             <DialogDescription>
               {lockedSupplier
-                ? `Bundles these requests into a new open purchase batch from ${lockedSupplier}. Adjust cost or serials before saving — receiving the batch will mark these requests delivered.`
+                ? `Bundles these requests into a new open purchase batch from ${lockedSupplier}. Adjust cost or SKUs before saving — receiving the batch will mark these requests delivered.`
                 : "Select one or more \"Ordered\" requests from the same supplier first."}
             </DialogDescription>
           </DialogHeader>
@@ -1452,15 +1449,9 @@ export default function Inventory() {
                       </div>
                     </div>
                     {tracksSerials && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label className="text-xs">Indoor serials (comma-separated, optional)</Label>
-                          <Input value={line.serialsIndoorInput} onChange={(e) => updateConvertLine(line.key, { serialsIndoorInput: e.target.value })} placeholder="GMI-IN-90001, GMI-IN-90002" />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Outdoor serials (same order, optional)</Label>
-                          <Input value={line.serialsOutdoorInput} onChange={(e) => updateConvertLine(line.key, { serialsOutdoorInput: e.target.value })} placeholder="GMI-OUT-90001, GMI-OUT-90002" />
-                        </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">SKUs (comma-separated, optional)</Label>
+                        <Input value={line.skusInput} onChange={(e) => updateConvertLine(line.key, { skusInput: e.target.value })} placeholder="GMI-90001, GMI-90002" />
                       </div>
                     )}
                   </div>
@@ -1532,7 +1523,7 @@ export default function Inventory() {
                     checked={Boolean(cat.tracksSerials)}
                     onChange={() => updateInventoryCategory(cat.id, { tracksSerials: !cat.tracksSerials })}
                   />
-                  Tracks serial numbers
+                  Tracks SKUs
                 </label>
               </div>
             ))}
@@ -1559,7 +1550,7 @@ export default function Inventory() {
                 checked={newCategoryTracksSerials}
                 onChange={(e) => setNewCategoryTracksSerials(e.target.checked)}
               />
-              Tracks serial numbers
+              Tracks SKUs
             </label>
           </div>
           <DialogFooter>
@@ -1572,7 +1563,7 @@ export default function Inventory() {
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>New purchase batch</DialogTitle>
-            <DialogDescription>Record a supplier delivery with per-line cost and serial numbers.</DialogDescription>
+            <DialogDescription>Record a supplier delivery with per-line cost and SKUs.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-3">
             <div className="space-y-1.5">
@@ -1626,15 +1617,9 @@ export default function Inventory() {
                         </div>
                       </div>
                       {tracksSerials && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Indoor serials (comma-separated, optional)</Label>
-                            <Input value={line.serialsIndoorInput} onChange={(e) => updateBatchLine(line.key, { serialsIndoorInput: e.target.value })} placeholder="GMI-IN-90001, GMI-IN-90002" />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Outdoor serials (same order, optional)</Label>
-                            <Input value={line.serialsOutdoorInput} onChange={(e) => updateBatchLine(line.key, { serialsOutdoorInput: e.target.value })} placeholder="GMI-OUT-90001, GMI-OUT-90002" />
-                          </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">SKUs (comma-separated, optional)</Label>
+                          <Input value={line.skusInput} onChange={(e) => updateBatchLine(line.key, { skusInput: e.target.value })} placeholder="GMI-90001, GMI-90002" />
                         </div>
                       )}
                     </div>

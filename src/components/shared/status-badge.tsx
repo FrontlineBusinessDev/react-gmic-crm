@@ -1,19 +1,6 @@
 import { Badge } from "@/components/ui/badge";
+import { useCrmStore } from "@/store/crmStore";
 import type { ProjectStatus, UnitStatus, InvoiceStatus, JobStatus, ClientStatus, InventoryStatus, ServiceCatalogStatus, SupplierStatus, UserStatus, RoleStatus, ReorderRequestStatus } from "@/types";
-
-const projectStatusMap: Record<ProjectStatus, { label: string; variant: "secondary" | "info" | "warning" | "success" | "destructive" }> = {
-  "Inquiry": { label: "Inquiry", variant: "secondary" },
-  "Site Visit": { label: "Site Visit", variant: "info" },
-  "Quotation": { label: "Quotation", variant: "warning" },
-  "Follow-Up": { label: "Follow-Up", variant: "warning" },
-  "Project Won": { label: "Project Won", variant: "success" },
-  "Project Lost": { label: "Project Lost", variant: "destructive" },
-  "Phase 1 Installation": { label: "Phase 1 Installation", variant: "info" },
-  "Phase 2 Installation": { label: "Phase 2 Installation", variant: "info" },
-  "Financial": { label: "Financial", variant: "warning" },
-  "Collection": { label: "Collection", variant: "destructive" },
-  "PMS": { label: "PMS", variant: "success" },
-};
 
 const unitStatusMap: Record<UnitStatus, { label: string; variant: "secondary" | "info" | "warning" | "success" | "destructive" }> = {
   active: { label: "Active", variant: "success" },
@@ -89,8 +76,8 @@ export function RoleStatusBadge({ status }: { status: RoleStatus }) {
 }
 
 export function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
-  const { label, variant } = projectStatusMap[status];
-  return <Badge variant={variant}>{label}</Badge>;
+  const stage = useCrmStore((s) => s.pipelineStages.find((st) => st.id === status));
+  return <Badge variant={stage?.variant ?? "secondary"}>{stage?.label ?? status}</Badge>;
 }
 
 export function UnitStatusBadge({ status }: { status: UnitStatus }) {

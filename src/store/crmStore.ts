@@ -25,11 +25,14 @@ import type {
   Role,
   RoleDefinition,
   ReorderRequest,
+  PipelineStageDefinition,
+  PipelineStageKind,
 } from "@/types";
 import { mockClients } from "@/data/clients";
 import { mockLeads } from "@/data/leads";
 import { mockInventory } from "@/data/inventory";
 import { mockInventoryCategories } from "@/data/inventoryCategories";
+import { mockPipelineStages } from "@/data/pipelineStages";
 import { mockBrands } from "@/data/brands";
 import { mockPurchaseBatches } from "@/data/purchaseBatches";
 import { mockSchedule } from "@/data/schedule";
@@ -106,14 +109,23 @@ interface CrmState {
   roles: RoleDefinition[];
   auditLog: AuditLogEntry[];
   reorderRequests: ReorderRequest[];
+  pipelineStages: PipelineStageDefinition[];
 
   // Audit
   logAudit: (entry: Omit<AuditLogEntry, "id" | "timestamp">) => void;
+
+  // Pipeline Stages
+  addPipelineStage: (input: { label: string; kind: "lead" | "client" }) => string;
+  updatePipelineStage: (id: string, updates: Partial<Pick<PipelineStageDefinition, "label" | "accent" | "variant">>) => void;
+  archivePipelineStage: (id: string) => boolean;
+  restorePipelineStage: (id: string) => void;
+  movePipelineStage: (id: string, direction: "up" | "down") => void;
 
   // Leads
   addLead: (lead: Omit<Lead, "id" | "createdAt" | "updatedAt">) => void;
   moveLeadStage: (leadId: string, stage: ProjectStatus, lostReason?: string) => void;
   addSurveyReport: (leadId: string, report: Omit<SurveyReport, "id" | "submittedAt">) => void;
+  advanceToNextLeadStage: (leadId: string) => void;
   convertLeadToClient: (leadId: string) => string | null;
 
   // Clients / Units
@@ -134,7 +146,7 @@ interface CrmState {
   ) => void;
 
   // Inventory
-  deductInventory: (itemId: string, qty: number, serial?: string) => void;
+  deductInventory: (itemId: string, qty: number, sku?: string) => void;
   markSerializedUnitInstalled: (itemId: string, serializedUnitId: string) => void;
   addInventoryItem: (item: Omit<InventoryItem, "id">) => void;
   updateInventoryItem: (id: string, updates: Partial<Omit<InventoryItem, "id">>) => void;
@@ -235,10 +247,75 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   roles: mockRoles,
   auditLog: mockAuditLog,
   reorderRequests: mockReorderRequests,
+  pipelineStages: mockPipelineStages,
 
   logAudit: (entry) => {
     const newEntry: AuditLogEntry = { ...entry, id: nextId("aud"), timestamp: new Date().toISOString() };
     set((s) => ({ auditLog: [newEntry, ...s.auditLog] }));
+  },
+
+  addPipelineStage: ({ label, kind }) => {
+    const id = nextId("stage");
+    const siblingOrders = get()
+      .pipelineStages.filter((s) => s.kind === kind)
+      .map((s) => s.order);
+    const order = siblingOrders.length ? Math.max(...siblingOrders) + 1 : 1;
+    const defaultVariantByKind: Record<PipelineStageKind, PipelineStageDefinition["variant"]> = {
+      lead: "secondary",
+      client: "info",
+      won: "success",
+      lost: "destructive",
+    };
+    const newStage: PipelineStageDefinition = {
+      id,
+      label,
+      kind,
+      order,
+      accent: "border-t-ink-300",
+      variant: defaultVariantByKind[kind],
+      status: "active",
+    };
+    set((s) => ({ pipelineStages: [...s.pipelineStages, newStage] }));
+    get().logAudit({ module: "pipelineStage", entityId: id, entityLabel: label, action: "create", changes: [], actor: "You" });
+    return id;
+  },
+
+  updatePipelineStage: (id, updates) => {
+    set((s) => ({ pipelineStages: s.pipelineStages.map((st) => (st.id === id ? { ...st, ...updates } : st)) }));
+  },
+
+  archivePipelineStage: (id) => {
+    const stage = get().pipelineStages.find((s) => s.id === id);
+    if (!stage) return false;
+    if (stage.kind === "won" || stage.kind === "lost") return false;
+    const inUse =
+      get().leads.some((l) => l.stage === id) || get().clients.some((c) => c.projectStatus === id);
+    if (inUse) return false;
+    set((s) => ({ pipelineStages: s.pipelineStages.map((st) => (st.id === id ? { ...st, status: "archived" } : st)) }));
+    get().logAudit({ module: "pipelineStage", entityId: id, entityLabel: stage.label, action: "archive", changes: [], actor: "You" });
+    return true;
+  },
+
+  restorePipelineStage: (id) => {
+    set((s) => ({ pipelineStages: s.pipelineStages.map((st) => (st.id === id ? { ...st, status: "active" } : st)) }));
+  },
+
+  movePipelineStage: (id, direction) => {
+    const stages = get().pipelineStages;
+    const stage = stages.find((s) => s.id === id);
+    if (!stage) return;
+    const siblings = stages.filter((s) => s.kind === stage.kind && s.status === "active").sort((a, b) => a.order - b.order);
+    const index = siblings.findIndex((s) => s.id === id);
+    const swapIndex = direction === "up" ? index - 1 : index + 1;
+    if (swapIndex < 0 || swapIndex >= siblings.length) return;
+    const other = siblings[swapIndex];
+    set((s) => ({
+      pipelineStages: s.pipelineStages.map((st) => {
+        if (st.id === stage.id) return { ...st, order: other.order };
+        if (st.id === other.id) return { ...st, order: stage.order };
+        return st;
+      }),
+    }));
   },
 
   addLead: (lead) => {
@@ -257,18 +334,20 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   },
 
   moveLeadStage: (leadId, stage, lostReason) => {
+    const lostStageId = get().pipelineStages.find((s) => s.kind === "lost")?.id;
     set((s) => ({
       leads: s.leads.map((l) =>
         l.id === leadId
-          ? { ...l, stage, lostReason: stage === "Project Lost" ? lostReason : undefined, updatedAt: new Date().toISOString() }
+          ? { ...l, stage, lostReason: stage === lostStageId ? lostReason : undefined, updatedAt: new Date().toISOString() }
           : l
       ),
     }));
     const lead = get().leads.find((l) => l.id === leadId);
     if (lead) {
+      const label = get().pipelineStages.find((s) => s.id === stage)?.label ?? stage;
       get().logActivity({
         type: "lead",
-        message: `${lead.clientName} moved to "${stage}"`,
+        message: `${lead.clientName} moved to "${label}"`,
         actor: "You",
       });
     }
@@ -281,10 +360,9 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       submittedAt: new Date().toISOString(),
     };
     set((s) => ({
-      leads: s.leads.map((l) =>
-        l.id === leadId ? { ...l, surveyReport: newReport, stage: "Site Visit" as ProjectStatus } : l
-      ),
+      leads: s.leads.map((l) => (l.id === leadId ? { ...l, surveyReport: newReport } : l)),
     }));
+    get().advanceToNextLeadStage(leadId);
     get().logActivity({
       type: "note",
       message: `Survey report submitted for lead ${leadId}`,
@@ -292,9 +370,22 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     });
   },
 
+  advanceToNextLeadStage: (leadId) => {
+    const lead = get().leads.find((l) => l.id === leadId);
+    if (!lead) return;
+    const current = get().pipelineStages.find((s) => s.id === lead.stage);
+    if (!current || current.kind !== "lead") return;
+    const next = get()
+      .pipelineStages.filter((s) => s.kind === "lead" && s.status === "active" && s.order > current.order)
+      .sort((a, b) => a.order - b.order)[0];
+    if (!next) return;
+    get().moveLeadStage(leadId, next.id);
+  },
+
   convertLeadToClient: (leadId) => {
     const lead = get().leads.find((l) => l.id === leadId);
     if (!lead) return null;
+    const wonStageId = get().pipelineStages.find((s) => s.kind === "won")?.id ?? "Project Won";
     const newClientId = get().addClient({
       name: lead.clientName,
       phone: lead.phone,
@@ -302,9 +393,12 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       address: lead.address,
       status: "active",
       tags: ["Converted Lead"],
+      convertedFromLeadId: leadId,
     });
     set((s) => ({
-      leads: s.leads.map((l) => (l.id === leadId ? { ...l, stage: "Project Won" as ProjectStatus, updatedAt: new Date().toISOString() } : l)),
+      leads: s.leads.map((l) =>
+        l.id === leadId ? { ...l, stage: wonStageId, convertedToClientId: newClientId, updatedAt: new Date().toISOString() } : l
+      ),
     }));
     get().logActivity({
       type: "lead",
@@ -317,6 +411,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   addClient: (client) => {
     const { units: unitDrafts, ...clientData } = client;
     const id = nextId("c");
+    const wonStageId = get().pipelineStages.find((s) => s.kind === "won")?.id ?? "Project Won";
     const newClient: Client = {
       ...clientData,
       id,
@@ -325,7 +420,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       balance: 0,
       totalBilled: 0,
       totalPaid: 0,
-      projectStatus: "Project Won",
+      projectStatus: wonStageId,
     };
     set((s) => ({ clients: [newClient, ...s.clients] }));
     get().logAudit({ module: "client", entityId: id, entityLabel: newClient.name, action: "create", changes: [], actor: "You" });
@@ -375,7 +470,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     }));
     get().logActivity({
       type: "install",
-      message: `Unit ${newUnit.model} (S/N ${newUnit.serialIndoor}) added to client record`,
+      message: `Unit ${newUnit.model} (SKU ${newUnit.sku}) added to client record`,
       actor: "You",
     });
   },
@@ -405,14 +500,14 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     get().logActivity({ type: "service", message: `${record.type} logged for unit ${unitId}`, actor: "You" });
   },
 
-  deductInventory: (itemId, qty, serial) => {
+  deductInventory: (itemId, qty, sku) => {
     set((s) => ({
       inventory: s.inventory.map((item) => {
         if (item.id !== itemId) return item;
         const updated: InventoryItem = { ...item, quantityOnHand: Math.max(0, item.quantityOnHand - qty) };
-        if (serial && item.serializedUnits) {
+        if (sku && item.serializedUnits) {
           updated.serializedUnits = item.serializedUnits.map((su) =>
-            su.serialIndoor === serial ? { ...su, status: "installed" } : su
+            su.sku === sku ? { ...su, status: "installed" } : su
           );
         }
         return updated;
@@ -443,7 +538,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       entityId: itemId,
       entityLabel: item.name,
       action: "update",
-      changes: [{ field: "serial " + su.serialIndoor, oldValue: su.status, newValue: "installed" }],
+      changes: [{ field: "sku " + su.sku, oldValue: su.status, newValue: "installed" }],
       actor: "You",
     });
   },
@@ -612,10 +707,10 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       const item = get().inventory.find((i) => i.id === line.inventoryItemId);
       if (!item) continue;
       const newQty = item.quantityOnHand + line.quantity;
-      const newSerialized = line.serials?.length
+      const newSerialized = line.skus?.length
         ? [
             ...(item.serializedUnits ?? []),
-            ...line.serials.map((pair) => ({ id: nextId("su"), serialIndoor: pair.serialIndoor, serialOutdoor: pair.serialOutdoor, status: "in_stock" as const })),
+            ...line.skus.map((sku) => ({ id: nextId("su"), sku, status: "in_stock" as const })),
           ]
         : item.serializedUnits;
       set((s) => ({

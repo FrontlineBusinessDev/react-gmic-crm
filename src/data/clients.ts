@@ -1,6 +1,6 @@
 import type { Client, Unit } from "@/types";
 
-function unit(partial: Partial<Unit> & Pick<Unit, "id" | "serialIndoor" | "serialOutdoor" | "model">): Unit {
+function unit(partial: Partial<Unit> & Pick<Unit, "id" | "sku" | "model">): Unit {
   return {
     type: "Split Type",
     horsePower: "1.5 HP",
@@ -32,8 +32,7 @@ export const mockClients: Client[] = [
     units: [
       unit({
         id: "un-001",
-        serialIndoor: "GMI-IN-88213",
-        serialOutdoor: "GMI-OUT-88213",
+        sku: "GMI-IN-88213",
         model: "Carrier Optimax 1.5HP",
         location: "Master Bedroom",
         installDate: "2024-01-20",
@@ -49,8 +48,7 @@ export const mockClients: Client[] = [
       }),
       unit({
         id: "un-002",
-        serialIndoor: "GMI-IN-88214",
-        serialOutdoor: "GMI-OUT-88214",
+        sku: "GMI-IN-88214",
         model: "Carrier Optimax 1.0HP",
         horsePower: "1.0 HP",
         location: "Kids Room",
@@ -82,8 +80,7 @@ export const mockClients: Client[] = [
     units: [
       unit({
         id: "un-003",
-        serialIndoor: "GMI-IN-77120",
-        serialOutdoor: "GMI-OUT-77120",
+        sku: "GMI-IN-77120",
         model: "Daikin FTKC Ceiling Cassette 3HP",
         type: "Cassette",
         horsePower: "3.0 HP",
@@ -101,8 +98,7 @@ export const mockClients: Client[] = [
       }),
       unit({
         id: "un-004",
-        serialIndoor: "GMI-IN-77121",
-        serialOutdoor: "GMI-OUT-77121",
+        sku: "GMI-IN-77121",
         model: "Daikin FTKC Ceiling Cassette 3HP",
         type: "Cassette",
         horsePower: "3.0 HP",
@@ -134,8 +130,7 @@ export const mockClients: Client[] = [
     units: [
       unit({
         id: "un-005",
-        serialIndoor: "GMI-IN-90045",
-        serialOutdoor: "GMI-OUT-90045",
+        sku: "GMI-IN-90045",
         model: "Panasonic Standard 2.0HP",
         horsePower: "2.0 HP",
         location: "Living Room",
@@ -166,8 +161,7 @@ export const mockClients: Client[] = [
     units: [
       unit({
         id: "un-006",
-        serialIndoor: "GMI-IN-55010",
-        serialOutdoor: "GMI-OUT-55010",
+        sku: "GMI-IN-55010",
         model: "LG Dual Inverter 2.5HP",
         horsePower: "2.5 HP",
         location: "Room 201",
@@ -185,8 +179,7 @@ export const mockClients: Client[] = [
       }),
       unit({
         id: "un-007",
-        serialIndoor: "GMI-IN-55011",
-        serialOutdoor: "GMI-OUT-55011",
+        sku: "GMI-IN-55011",
         model: "LG Dual Inverter 2.5HP",
         horsePower: "2.5 HP",
         location: "Room 202",
@@ -253,8 +246,7 @@ export const mockClients: Client[] = [
     units: [
       unit({
         id: "un-008",
-        serialIndoor: "GMI-IN-64410",
-        serialOutdoor: "GMI-OUT-64410",
+        sku: "GMI-IN-64410",
         model: "Carrier Optimax 2.0HP Inverter Split",
         horsePower: "2.0 HP",
         location: "Sales Floor",
@@ -287,8 +279,7 @@ export const mockClients: Client[] = [
     units: [
       unit({
         id: "un-009",
-        serialIndoor: "GMI-IN-40012",
-        serialOutdoor: "GMI-OUT-40012",
+        sku: "GMI-IN-40012",
         model: "Panasonic Standard 1.0HP Split",
         horsePower: "1.0 HP",
         location: "Living Room",
@@ -323,8 +314,7 @@ export const mockClients: Client[] = [
     units: [
       unit({
         id: "un-010",
-        serialIndoor: "GMI-IN-30005",
-        serialOutdoor: "GMI-OUT-30005",
+        sku: "GMI-IN-30005",
         model: "Daikin FTKC Ceiling Cassette 3.0HP",
         type: "Cassette",
         horsePower: "3.0 HP",
@@ -359,8 +349,7 @@ export const mockClients: Client[] = [
     units: [
       unit({
         id: "un-011",
-        serialIndoor: "GMI-IN-52210",
-        serialOutdoor: "GMI-OUT-52210",
+        sku: "GMI-IN-52210",
         model: "LG Dual Inverter 2.0HP Split",
         horsePower: "2.0 HP",
         location: "Dining Area A",
