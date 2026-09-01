@@ -217,6 +217,8 @@ export interface InventoryItem {
   unitCost: number;
   unitPrice: number;
   supplier: string;
+  /** Unit of measurement this item is tracked/priced by — "piece", "meter", "foot", "kg", etc. */
+  unit?: string;
   serializedUnits?: SerializedStockUnit[]; // for categories with tracksSerials
   bom?: BomLine[]; // materials this item consumes when sold/installed
   status?: InventoryStatus;
@@ -341,10 +343,13 @@ export interface InvoiceLineItem {
   sourceId?: string; // InventoryItem.id or ServiceCatalogItem.id
 }
 
+export type PaymentMethod = "Cash" | "Bank Transfer" | "GCash" | "Check" | "Other";
+
 export interface PaymentRecord {
   id: string;
   date: string;
   amount: number;
+  method?: PaymentMethod;
   proofUrl?: string;
   proofFileName?: string;
   paidWithoutProof?: boolean;
@@ -359,10 +364,46 @@ export interface Invoice {
   issueDate: string;
   dueDate: string;
   items: InvoiceLineItem[];
+  additionalCost?: number;
+  additionalCostNote?: string;
   amountPaid: number;
   status: InvoiceStatus;
   relatedUnitId?: string;
   payments?: PaymentRecord[];
+}
+
+// ---------- Pending Orders (payment-first flow) ----------
+// Created from a completed job (or manually) and paid against BEFORE a real
+// Invoice exists. Once payment is confirmed (amountPaid >= total), the store
+// auto-generates the Invoice from this record's items/additionalCost/payments.
+export type PendingOrderStatus = "pending_payment" | "paid" | "invoiced";
+
+export interface PendingOrder {
+  id: string;
+  clientId: string;
+  clientName: string;
+  sourceJobId?: string; // ScheduleJob.id, when created from a completed job
+  items: InvoiceLineItem[];
+  additionalCost?: number;
+  additionalCostNote?: string;
+  amountPaid: number;
+  payments?: PaymentRecord[];
+  status: PendingOrderStatus;
+  createdAt: string;
+  invoiceId?: string; // set once the real Invoice is generated
+}
+
+// ---------- Expenses ----------
+
+export type ExpenseCategory = "Employee Salaries" | "Gas/Fuel" | "Meal Allowances" | "Other";
+
+export interface Expense {
+  id: string;
+  category: ExpenseCategory;
+  amount: number;
+  date: string; // ISO date
+  notes?: string;
+  createdBy: string;
 }
 
 // ---------- Activity feed ----------
@@ -397,14 +438,18 @@ export interface NotificationItem {
 
 export interface PurchaseBatchLine {
   id: string;
-  inventoryItemId: string;
-  itemName: string; // snapshot at batch time
+  /** Set once resolved against an existing item or created as a new one. */
+  inventoryItemId?: string;
+  itemName: string; // typed at batch time — snapshot, or the name of a brand-new item
+  sku: string; // typed item-level SKU — matched against existing items, or used to create a new one
+  category?: InventoryCategory; // used when creating a brand-new item
+  unit?: string; // used when creating a brand-new item
   quantity: number;
   unitCost: number;
   skus?: string[]; // per-unit SKUs, for categories that track them
 }
 
-export type PurchaseBatchStatus = "open" | "received" | "cancelled";
+export type PurchaseBatchStatus = "received" | "cancelled";
 
 export interface PurchaseBatch {
   id: string;
@@ -436,7 +481,9 @@ export type AuditModule =
   | "user"
   | "role"
   | "reorderRequest"
-  | "pipelineStage";
+  | "pipelineStage"
+  | "pendingOrder"
+  | "expense";
 
 export interface AuditFieldChange {
   field: string;

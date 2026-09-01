@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useParams, Navigate, Link } from "react-router-dom";
-import { ArrowLeft, ArrowUpDown, PackageSearch, Paperclip, Pencil, Plus, Wallet, X } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, PackageSearch, Paperclip, Wallet, X } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +40,7 @@ const sortFields = [
 
 export default function BatchDetail() {
   const { id } = useParams();
-  const { purchaseBatches, inventory, reorderRequests, recordBatchPayment, addBatchLine, updateBatchLine } = useCrmStore();
+  const { purchaseBatches, inventory, reorderRequests, recordBatchPayment } = useCrmStore();
   const batch = purchaseBatches.find((b) => b.id === id);
   const sourceRequests = reorderRequests.filter((r) => r.batchId === id);
 
@@ -54,12 +54,6 @@ export default function BatchDetail() {
   const [paidWithoutProof, setPaidWithoutProof] = useState(false);
   const [payNotes, setPayNotes] = useState("");
   const [paymentError, setPaymentError] = useState<string | null>(null);
-
-  const [lineOpen, setLineOpen] = useState(false);
-  const [editingLineId, setEditingLineId] = useState<string | null>(null);
-  const [lineItemId, setLineItemId] = useState("");
-  const [lineQuantity, setLineQuantity] = useState("1");
-  const [lineUnitCost, setLineUnitCost] = useState("0");
 
   const linesWithItem = useMemo(() => {
     if (!batch) return [];
@@ -149,47 +143,6 @@ export default function BatchDetail() {
     setPayNotes("");
     setPaymentError(null);
     setPayOpen(false);
-  }
-
-  function openAddLine() {
-    setEditingLineId(null);
-    const first = inventory[0];
-    setLineItemId(first?.id ?? "");
-    setLineQuantity("1");
-    setLineUnitCost(first ? String(first.unitCost) : "0");
-    setLineOpen(true);
-  }
-
-  function openEditLine(line: (typeof linesWithItem)[number]["line"]) {
-    setEditingLineId(line.id);
-    setLineItemId(line.inventoryItemId);
-    setLineQuantity(String(line.quantity));
-    setLineUnitCost(String(line.unitCost));
-    setLineOpen(true);
-  }
-
-  function handleSaveLine() {
-    if (!batch || !lineItemId || !lineQuantity || !lineUnitCost) return;
-    const selected = inventory.find((i) => i.id === lineItemId);
-    if (!selected) return;
-    const quantity = Number(lineQuantity);
-    const unitCost = Number(lineUnitCost);
-    if (editingLineId) {
-      updateBatchLine(batch.id, editingLineId, {
-        inventoryItemId: selected.id,
-        itemName: selected.name,
-        quantity,
-        unitCost,
-      });
-    } else {
-      addBatchLine(batch.id, {
-        inventoryItemId: selected.id,
-        itemName: selected.name,
-        quantity,
-        unitCost,
-      });
-    }
-    setLineOpen(false);
   }
 
   return (
@@ -314,48 +267,6 @@ export default function BatchDetail() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={lineOpen} onOpenChange={setLineOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingLineId ? "Update item" : "Add item"}</DialogTitle>
-            <DialogDescription>{batch.batchNumber} — {batch.supplier}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Item</Label>
-              <Select value={lineItemId} onValueChange={(v) => {
-                setLineItemId(v);
-                const selected = inventory.find((i) => i.id === v);
-                if (selected) setLineUnitCost(String(selected.unitCost));
-              }}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select item" />
-                </SelectTrigger>
-                <SelectContent>
-                  {inventory.map((i) => (
-                    <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Quantity</Label>
-                <Input type="number" min="1" value={lineQuantity} onChange={(e) => setLineQuantity(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Unit Cost (₱)</Label>
-                <Input type="number" min="0" step="0.01" value={lineUnitCost} onChange={(e) => setLineUnitCost(e.target.value)} />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setLineOpen(false)}>Cancel</Button>
-            <Button variant="brand" onClick={handleSaveLine}>{editingLineId ? "Update" : "Add"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {sourceRequests.length > 0 && (
         <Card>
           <CardHeader>
@@ -377,11 +288,6 @@ export default function BatchDetail() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle>Materials &amp; spare parts</CardTitle>
-          {batch.status === "open" && (
-            <Button size="sm" variant="outline" onClick={openAddLine}>
-              <Plus className="h-3.5 w-3.5" /> Add Item
-            </Button>
-          )}
         </CardHeader>
         <CardContent>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
@@ -439,11 +345,6 @@ export default function BatchDetail() {
                       <p className="font-medium text-ink-800">{line.itemName}</p>
                       <div className="flex items-center gap-2">
                         {item && <Badge variant="secondary">{item.category}</Badge>}
-                        {batch.status === "open" && (
-                          <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => openEditLine(line)}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
                       </div>
                     </div>
                     <MobileListRow label="Quantity">{line.quantity}</MobileListRow>
@@ -465,7 +366,6 @@ export default function BatchDetail() {
                       <TableHead>Unit Cost</TableHead>
                       <TableHead>Line Total</TableHead>
                       <TableHead>SKUs</TableHead>
-                      {batch.status === "open" && <TableHead className="text-right">Actions</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -477,13 +377,6 @@ export default function BatchDetail() {
                         <TableCell>{formatCurrency(line.unitCost)}</TableCell>
                         <TableCell>{formatCurrency(line.quantity * line.unitCost)}</TableCell>
                         <TableCell className="text-sm text-ink-600">{line.skus && line.skus.length > 0 ? formatSkus(line.skus) : "—"}</TableCell>
-                        {batch.status === "open" && (
-                          <TableCell className="text-right">
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditLine(line)}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                          </TableCell>
-                        )}
                       </TableRow>
                     ))}
                   </TableBody>

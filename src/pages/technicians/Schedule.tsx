@@ -69,7 +69,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { useAuthStore } from "@/store/authStore";
 import { mockUsers } from "@/data/users";
-import { cn, initials } from "@/lib/utils";
+import { cn, initials, formatCurrency } from "@/lib/utils";
 import type { JobStatus, JobType, ScheduleJob, ServiceCatalogItem } from "@/types";
 
 const technicians = mockUsers.filter((u) => u.role === "technician");
@@ -538,24 +538,30 @@ export default function Schedule() {
                         return (
                           <div key={m.itemId} className="flex items-center justify-between gap-2 text-xs">
                             <span className="truncate text-ink-600">{item.name}</span>
-                            <Input
-                              type="number"
-                              min={1}
-                              max={item.quantityOnHand}
-                              step={1}
-                              value={m.qty}
-                              onChange={(e) => {
-                                const raw = Number(e.target.value) || 1;
-                                const qty = Math.min(Math.max(raw, 1), item.quantityOnHand);
-                                setForm({
-                                  ...form,
-                                  materials: form.materials.map((mm) =>
-                                    mm.itemId === m.itemId ? { ...mm, qty } : mm,
-                                  ),
-                                });
-                              }}
-                              className="h-7 w-16 text-xs"
-                            />
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="number"
+                                min={1}
+                                max={item.quantityOnHand}
+                                step={1}
+                                value={m.qty}
+                                onChange={(e) => {
+                                  const raw = Number(e.target.value) || 1;
+                                  const qty = Math.min(Math.max(raw, 1), item.quantityOnHand);
+                                  setForm({
+                                    ...form,
+                                    materials: form.materials.map((mm) =>
+                                      mm.itemId === m.itemId ? { ...mm, qty } : mm,
+                                    ),
+                                  });
+                                }}
+                                className="h-7 w-16 text-xs"
+                              />
+                              <span className="w-8 text-ink-400">{item.unit ?? "pc"}</span>
+                              <span className="w-20 shrink-0 text-right font-medium text-ink-700">
+                                {formatCurrency(m.qty * item.unitCost)}
+                              </span>
+                            </div>
                           </div>
                         );
                       })}

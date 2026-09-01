@@ -28,6 +28,10 @@ import type {
   ReorderRequest,
   PipelineStageDefinition,
   PipelineStageKind,
+  PendingOrder,
+  PaymentMethod,
+  Expense,
+  InvoiceLineItem,
 } from "@/types";
 import { mockClients } from "@/data/clients";
 import { mockLeads } from "@/data/leads";
@@ -45,6 +49,7 @@ import { mockUsers } from "@/data/users";
 import { mockRoles } from "@/data/roles";
 import { mockReorderRequests } from "@/data/reorderRequests";
 import { mockAuditLog } from "@/data/auditLog";
+import { mockExpenses } from "@/data/expenses";
 import { addMonthsIso } from "@/lib/utils";
 import { useNotificationStore } from "@/store/notificationStore";
 import { useToastStore } from "@/store/toastStore";
@@ -123,7 +128,7 @@ function formatInvoiceNumber(format: string, seq: number) {
 }
 
 export interface InstallationOutcome {
-  invoiceNumber: string;
+  pendingOrderId: string;
   warrantyExpiresOn: string;
   nextPmsDate: string;
 }
@@ -138,6 +143,8 @@ interface CrmState {
   schedule: ScheduleJob[];
   invoices: Invoice[];
   invoiceNumberFormat: string;
+  pendingOrders: PendingOrder[];
+  expenses: Expense[];
   activity: ActivityItem[];
   serviceCatalog: ServiceCatalogItem[];
   suppliers: Supplier[];
@@ -210,12 +217,8 @@ interface CrmState {
 
   // Purchase Batches
   addPurchaseBatch: (input: { supplier: string; lines: Omit<PurchaseBatchLine, "id">[] }) => string;
-  receivePurchaseBatch: (id: string) => void;
   cancelPurchaseBatch: (id: string) => void;
   recordBatchPayment: (id: string, amount: number, proof?: { url?: string; fileName?: string; paidWithoutProof?: boolean; notes?: string }) => void;
-  addBatchLine: (batchId: string, line: Omit<PurchaseBatchLine, "id">) => void;
-  updateBatchLine: (batchId: string, lineId: string, updates: Partial<Omit<PurchaseBatchLine, "id">>) => void;
-
   // Reorder Requests
   addReorderRequest: (input: { inventoryItemId: string; quantityRequested: number; notes?: string }) => void;
   markReorderOrdered: (id: string) => void;
@@ -257,9 +260,37 @@ interface CrmState {
 
   // Financial
   addInvoice: (invoice: Omit<Invoice, "id" | "invoiceNumber"> & { invoiceNumber?: string }) => void;
-  recordPayment: (invoiceId: string, amount: number, proof?: { url?: string; fileName?: string; paidWithoutProof?: boolean }) => void;
+  recordPayment: (invoiceId: string, amount: number, proof?: { url?: string; fileName?: string; paidWithoutProof?: boolean; method?: PaymentMethod }) => void;
   setInvoiceNumberFormat: (format: string) => void;
   previewNextInvoiceNumber: () => string;
+
+  // Pending Orders (payment-first flow)
+  createPendingOrder: (input: {
+    clientId: string;
+    clientName: string;
+    sourceJobId?: string;
+    items: InvoiceLineItem[];
+    additionalCost?: number;
+    additionalCostNote?: string;
+  }) => string;
+  createPendingOrderFromJob: (jobId: string) => string | undefined;
+  recordPendingOrderPayment: (
+    orderId: string,
+    amount: number,
+    method: PaymentMethod,
+    proof?: { url?: string; fileName?: string; paidWithoutProof?: boolean }
+  ) => void;
+
+  // Bulk / Source payments
+  recordBulkPayment: (
+    allocations: { clientId: string; amount: number }[],
+    method: PaymentMethod,
+    proof?: { url?: string; fileName?: string; paidWithoutProof?: boolean }
+  ) => void;
+
+  // Expenses
+  addExpense: (expense: Omit<Expense, "id">) => void;
+  deleteExpense: (id: string) => void;
 
   // Activity
   logActivity: (item: Omit<ActivityItem, "id" | "timestamp">) => void;
@@ -282,6 +313,8 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   schedule: mockSchedule,
   invoices: mockInvoices,
   invoiceNumberFormat: "GMIC-{YYYY}-{seq}",
+  pendingOrders: [],
+  expenses: mockExpenses,
   activity: mockActivity,
   serviceCatalog: mockServiceCatalog,
   suppliers: mockSuppliers,
@@ -799,11 +832,69 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     get().logAudit({ module: "brand", entityId: id, entityLabel: brand.name, action: "restore", changes: [], actor: "You" });
   },
 
+  // Batches are entered as already-received deliveries — stock is added
+  // immediately, there's no separate "open"/pending stage to advance through.
+  // Each line is resolved against an existing item by SKU (case-insensitive);
+  // no match creates a brand-new InventoryItem from the line's typed fields.
   addPurchaseBatch: ({ supplier, lines }) => {
     const id = nextId("batch");
     const seq = get().purchaseBatches.length + 1;
     const batchNumber = `BATCH-${new Date().getFullYear()}-${String(seq).padStart(4, "0")}`;
-    const fullLines: PurchaseBatchLine[] = lines.map((line) => ({ ...line, id: nextId("bl") }));
+    const receivedAt = new Date().toISOString();
+    const fullLines: PurchaseBatchLine[] = lines.map((line) => {
+      const lineId = nextId("bl");
+      const existing = line.sku
+        ? get().inventory.find((i) => i.sku.toLowerCase() === line.sku.toLowerCase())
+        : undefined;
+      if (existing) {
+        const newQty = existing.quantityOnHand + line.quantity;
+        const newSerialized = line.skus?.length
+          ? [
+              ...(existing.serializedUnits ?? []),
+              ...line.skus.map((sku) => ({ id: nextId("su"), sku, status: "in_stock" as const })),
+            ]
+          : existing.serializedUnits;
+        set((s) => ({
+          inventory: s.inventory.map((i) =>
+            i.id === existing.id
+              ? { ...i, quantityOnHand: newQty, unitCost: line.unitCost, unit: line.unit ?? i.unit, serializedUnits: newSerialized }
+              : i
+          ),
+        }));
+        get().logAudit({
+          module: "inventory",
+          entityId: existing.id,
+          entityLabel: existing.name,
+          action: "update",
+          changes: [
+            { field: "quantityOnHand", oldValue: existing.quantityOnHand, newValue: newQty },
+            { field: "unitCost", oldValue: existing.unitCost, newValue: line.unitCost },
+          ],
+          actor: "You",
+        });
+        return { ...line, id: lineId, inventoryItemId: existing.id, itemName: existing.name };
+      }
+      const newItemId = nextId("inv");
+      const newItem: InventoryItem = {
+        id: newItemId,
+        sku: line.sku,
+        name: line.itemName,
+        category: line.category ?? "Material",
+        quantityOnHand: line.quantity,
+        reorderLevel: 0,
+        unitCost: line.unitCost,
+        unitPrice: line.unitCost,
+        unit: line.unit,
+        supplier,
+        status: "active",
+        serializedUnits: line.skus?.length
+          ? line.skus.map((sku) => ({ id: nextId("su"), sku, status: "in_stock" as const }))
+          : undefined,
+      };
+      set((s) => ({ inventory: [newItem, ...s.inventory] }));
+      get().logAudit({ module: "inventory", entityId: newItemId, entityLabel: newItem.name, action: "create", changes: [], actor: "You" });
+      return { ...line, id: lineId, inventoryItemId: newItemId };
+    });
     const totalCost = fullLines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
     const newBatch: PurchaseBatch = {
       id,
@@ -812,82 +903,22 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       lines: fullLines,
       totalCost,
       amountPaid: 0,
-      status: "open",
+      status: "received",
       createdAt: new Date().toISOString(),
       createdBy: "You",
+      receivedAt,
     };
     set((s) => ({ purchaseBatches: [newBatch, ...s.purchaseBatches] }));
+    useToastStore.getState().addToast({ variant: "success", message: `Batch "${batchNumber}" received — stock updated.` });
     get().logAudit({ module: "purchaseBatch", entityId: id, entityLabel: batchNumber, action: "create", changes: [], actor: "You" });
     return id;
   },
 
-  // Receiving a batch increments stock for each line, records last-cost, and
-  // appends any per-unit serials for categories that track them.
-  receivePurchaseBatch: (id) => {
-    const batch = get().purchaseBatches.find((b) => b.id === id);
-    if (!batch || batch.status !== "open") return;
-    const receivedAt = new Date().toISOString();
-    set((s) => ({
-      purchaseBatches: s.purchaseBatches.map((b) => (b.id === id ? { ...b, status: "received", receivedAt } : b)),
-    }));
-    for (const line of batch.lines) {
-      const item = get().inventory.find((i) => i.id === line.inventoryItemId);
-      if (!item) continue;
-      const newQty = item.quantityOnHand + line.quantity;
-      const newSerialized = line.skus?.length
-        ? [
-            ...(item.serializedUnits ?? []),
-            ...line.skus.map((sku) => ({ id: nextId("su"), sku, status: "in_stock" as const })),
-          ]
-        : item.serializedUnits;
-      set((s) => ({
-        inventory: s.inventory.map((i) =>
-          i.id === item.id
-            ? { ...i, quantityOnHand: newQty, unitCost: line.unitCost, serializedUnits: newSerialized }
-            : i
-        ),
-      }));
-      get().logAudit({
-        module: "inventory",
-        entityId: item.id,
-        entityLabel: item.name,
-        action: "update",
-        changes: [
-          { field: "quantityOnHand", oldValue: item.quantityOnHand, newValue: newQty },
-          { field: "unitCost", oldValue: item.unitCost, newValue: line.unitCost },
-        ],
-        actor: "You",
-      });
-    }
-    get().logAudit({ module: "purchaseBatch", entityId: id, entityLabel: batch.batchNumber, action: "update", changes: [{ field: "status", oldValue: "open", newValue: "received" }], actor: "You" });
-    useToastStore.getState().addToast({ variant: "success", message: `Batch "${batch.batchNumber}" received — stock updated.` });
-
-    // Any reorder requests bundled into this batch are now fulfilled.
-    const linkedRequests = get().reorderRequests.filter((r) => r.batchId === id);
-    if (linkedRequests.length > 0) {
-      set((s) => ({
-        reorderRequests: s.reorderRequests.map((r) =>
-          r.batchId === id ? { ...r, status: "delivered", deliveredAt: receivedAt } : r
-        ),
-      }));
-      for (const req of linkedRequests) {
-        get().logAudit({
-          module: "reorderRequest",
-          entityId: req.id,
-          entityLabel: req.itemName,
-          action: "update",
-          changes: [{ field: "status", oldValue: req.status, newValue: "delivered" }],
-          actor: "You",
-        });
-      }
-    }
-  },
-
   cancelPurchaseBatch: (id) => {
     const batch = get().purchaseBatches.find((b) => b.id === id);
-    if (!batch || batch.status !== "open") return;
+    if (!batch || batch.status === "cancelled") return;
     set((s) => ({ purchaseBatches: s.purchaseBatches.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)) }));
-    get().logAudit({ module: "purchaseBatch", entityId: id, entityLabel: batch.batchNumber, action: "update", changes: [{ field: "status", oldValue: "open", newValue: "cancelled" }], actor: "You" });
+    get().logAudit({ module: "purchaseBatch", entityId: id, entityLabel: batch.batchNumber, action: "update", changes: [{ field: "status", oldValue: batch.status, newValue: "cancelled" }], actor: "You" });
 
     // Unlink any reorder requests that were bundled into this batch so they can be re-batched or cancelled.
     const linkedRequests = get().reorderRequests.filter((r) => r.batchId === id);
@@ -938,48 +969,6 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     });
   },
 
-  addBatchLine: (batchId, line) => {
-    const batch = get().purchaseBatches.find((b) => b.id === batchId);
-    if (!batch || batch.status !== "open") return;
-    const newLine: PurchaseBatchLine = { ...line, id: nextId("bl") };
-    const totalCost = [...batch.lines, newLine].reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
-    set((s) => ({
-      purchaseBatches: s.purchaseBatches.map((b) =>
-        b.id === batchId ? { ...b, lines: [...b.lines, newLine], totalCost } : b
-      ),
-    }));
-    get().logAudit({
-      module: "purchaseBatch",
-      entityId: batchId,
-      entityLabel: batch.batchNumber,
-      action: "update",
-      changes: [{ field: "lines", oldValue: `+${newLine.itemName}`, newValue: `qty ${newLine.quantity} @ ${newLine.unitCost}` }],
-      actor: "You",
-    });
-  },
-
-  updateBatchLine: (batchId, lineId, updates) => {
-    const batch = get().purchaseBatches.find((b) => b.id === batchId);
-    if (!batch || batch.status !== "open") return;
-    const existing = batch.lines.find((l) => l.id === lineId);
-    if (!existing) return;
-    const newLines = batch.lines.map((l) => (l.id === lineId ? { ...l, ...updates } : l));
-    const totalCost = newLines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
-    set((s) => ({
-      purchaseBatches: s.purchaseBatches.map((b) =>
-        b.id === batchId ? { ...b, lines: newLines, totalCost } : b
-      ),
-    }));
-    get().logAudit({
-      module: "purchaseBatch",
-      entityId: batchId,
-      entityLabel: batch.batchNumber,
-      action: "update",
-      changes: [{ field: "lines", oldValue: `${existing.itemName} qty ${existing.quantity} @ ${existing.unitCost}`, newValue: `${updates.itemName ?? existing.itemName} qty ${updates.quantity ?? existing.quantity} @ ${updates.unitCost ?? existing.unitCost}` }],
-      actor: "You",
-    });
-  },
-
   addReorderRequest: ({ inventoryItemId, quantityRequested, notes }) => {
     const item = get().inventory.find((i) => i.id === inventoryItemId);
     if (!item) return;
@@ -1015,14 +1004,17 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     });
   },
 
-  // Bundles ordered requests into a batch line so receiving flows exclusively through
-  // receivePurchaseBatch — request status stays "ordered" until the batch is received.
+  // Batches are received immediately on creation now, so linking a reorder
+  // request to one also fulfills it right away — no separate "Receive" step.
   linkReorderRequestsToBatch: (requestIds, batchId) => {
     const batch = get().purchaseBatches.find((b) => b.id === batchId);
     const requests = get().reorderRequests.filter((r) => requestIds.includes(r.id));
     if (requests.length === 0) return;
+    const deliveredAt = new Date().toISOString();
     set((s) => ({
-      reorderRequests: s.reorderRequests.map((r) => (requestIds.includes(r.id) ? { ...r, batchId } : r)),
+      reorderRequests: s.reorderRequests.map((r) =>
+        requestIds.includes(r.id) ? { ...r, batchId, status: "delivered", deliveredAt } : r
+      ),
     }));
     for (const req of requests) {
       get().logAudit({
@@ -1030,7 +1022,10 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         entityId: req.id,
         entityLabel: req.itemName,
         action: "update",
-        changes: [{ field: "batchId", oldValue: null, newValue: batch?.batchNumber ?? batchId }],
+        changes: [
+          { field: "batchId", oldValue: null, newValue: batch?.batchNumber ?? batchId },
+          { field: "status", oldValue: req.status, newValue: "delivered" },
+        ],
         actor: "You",
       });
     }
@@ -1304,30 +1299,24 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     }
 
     // Post-installation automation: an Installation job marked Installed triggers
-    // financial, warranty start, and the next PMS visit in one connected flow.
+    // a payment-first Pending Order (populated from the job's services/materials/
+    // units), warranty start, and the next PMS visit in one connected flow. The
+    // real Invoice is only generated once that order's payment is confirmed.
     if (status === "installed" && job.type === "Installation") {
-      const today = new Date().toISOString().slice(0, 10);
       const warrantyExpiresOn = addMonthsIso(job.date, INSTALLATION_WARRANTY_MONTHS);
       const nextPmsDate = addMonthsIso(job.date, PMS_FOLLOWUP_MONTHS);
 
-      get().addInvoice({
-        clientId: job.clientId ?? "",
-        clientName: job.clientName,
-        issueDate: today,
-        dueDate: addMonthsIso(today, 1),
-        items: [
-          {
-            id: "li-install",
-            description: `Installation — ${job.title}`,
-            qty: 1,
-            unitPrice: DEFAULT_INSTALLATION_PRICE,
-            kind: "service",
-          },
-        ],
-        amountPaid: 0,
-        status: "unpaid",
-      });
-      const invoiceNumber = get().invoices[0]?.invoiceNumber ?? "";
+      let pendingOrderId = get().createPendingOrderFromJob(job.id);
+      if (!pendingOrderId) {
+        // No client/line items resolved from the job — fall back to a single
+        // flat installation line so an order still exists to pay against.
+        pendingOrderId = get().createPendingOrder({
+          clientId: job.clientId ?? "",
+          clientName: job.clientName,
+          sourceJobId: job.id,
+          items: [{ id: nextId("li"), description: `Installation — ${job.title}`, qty: 1, unitPrice: DEFAULT_INSTALLATION_PRICE, kind: "service" }],
+        });
+      }
       const pmsServiceId = get().serviceCatalog.find((s) => s.name === "Cleaning (PMS)")?.id;
 
       get().addJob({
@@ -1345,7 +1334,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         notes: "Auto-scheduled 3-month PMS follow-up after installation.",
       });
 
-      return { invoiceNumber, warrantyExpiresOn, nextPmsDate };
+      return { pendingOrderId, warrantyExpiresOn, nextPmsDate };
     }
     return undefined;
   },
@@ -1416,7 +1405,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     const num = manualNumber?.trim() || formatInvoiceNumber(get().invoiceNumberFormat, idCounter + 1);
     const id = nextId("inv");
     const newInvoice: Invoice = { ...invoiceData, id, invoiceNumber: num };
-    const invoiceTotal = invoice.items.reduce((sum, i) => sum + i.qty * i.unitPrice, 0);
+    const invoiceTotal = invoice.items.reduce((sum, i) => sum + i.qty * i.unitPrice, 0) + (invoice.additionalCost ?? 0);
     set((s) => ({
       invoices: [newInvoice, ...s.invoices],
       clients: s.clients.map((c) =>
@@ -1449,6 +1438,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       id: nextId("pay"),
       date: new Date().toISOString(),
       amount,
+      method: proof?.method,
       proofUrl: proof?.url,
       proofFileName: proof?.fileName,
       paidWithoutProof: proof?.paidWithoutProof,
@@ -1457,7 +1447,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       invoices: s.invoices.map((inv) => {
         if (inv.id !== invoiceId) return inv;
         const newPaid = inv.amountPaid + amount;
-        const total = inv.items.reduce((sum, i) => sum + i.qty * i.unitPrice, 0);
+        const total = inv.items.reduce((sum, i) => sum + i.qty * i.unitPrice, 0) + (inv.additionalCost ?? 0);
         const status: Invoice["status"] = newPaid >= total ? "paid" : newPaid > 0 ? "partial" : "unpaid";
         return {
           ...inv,
@@ -1495,6 +1485,163 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         actor: "You",
       });
     }
+  },
+
+  createPendingOrder: ({ clientId, clientName, sourceJobId, items, additionalCost, additionalCostNote }) => {
+    const id = nextId("po");
+    const newOrder: PendingOrder = {
+      id,
+      clientId,
+      clientName,
+      sourceJobId,
+      items,
+      additionalCost,
+      additionalCostNote,
+      amountPaid: 0,
+      status: "pending_payment",
+      createdAt: new Date().toISOString(),
+    };
+    set((s) => ({ pendingOrders: [newOrder, ...s.pendingOrders] }));
+    get().logAudit({ module: "pendingOrder", entityId: id, entityLabel: clientName, action: "create", changes: [], actor: "You" });
+    return id;
+  },
+
+  // Auto-populates a Pending Order's line items from a completed job's
+  // services/materials/units — the "system must automatically populate...
+  // with all applicable services and materials" requirement. Materials were
+  // already deducted from stock when the job was marked done (updateJobStatus),
+  // so their line items intentionally omit kind/sourceId — addInvoice's
+  // inventory-deduction side effect only fires for kind "unit", and we don't
+  // want a second deduction when the invoice is generated later.
+  createPendingOrderFromJob: (jobId) => {
+    const job = get().schedule.find((j) => j.id === jobId);
+    if (!job || !job.clientId) return undefined;
+    const client = get().clients.find((c) => c.id === job.clientId);
+    if (!client) return undefined;
+    const items: InvoiceLineItem[] = [];
+    for (const unitId of job.unitIds ?? []) {
+      const unit = client.units.find((u) => u.id === unitId);
+      if (!unit) continue;
+      items.push({ id: nextId("li"), description: unit.model, qty: 1, unitPrice: 0 });
+    }
+    for (const serviceId of job.serviceIds ?? []) {
+      const service = get().serviceCatalog.find((s) => s.id === serviceId);
+      if (!service) continue;
+      items.push({ id: nextId("li"), description: service.name, qty: 1, unitPrice: service.samplePrice ?? 0, kind: "service", sourceId: service.id });
+    }
+    for (const { itemId, qty } of job.materials ?? []) {
+      const item = get().inventory.find((i) => i.id === itemId);
+      if (!item) continue;
+      items.push({ id: nextId("li"), description: item.name, qty, unitPrice: item.unitPrice });
+    }
+    return get().createPendingOrder({
+      clientId: client.id,
+      clientName: client.name,
+      sourceJobId: jobId,
+      items,
+    });
+  },
+
+  recordPendingOrderPayment: (orderId, amount, method, proof) => {
+    const paymentRecord: PaymentRecord = {
+      id: nextId("pay"),
+      date: new Date().toISOString(),
+      amount,
+      method,
+      proofUrl: proof?.url,
+      proofFileName: proof?.fileName,
+      paidWithoutProof: proof?.paidWithoutProof,
+    };
+    set((s) => ({
+      pendingOrders: s.pendingOrders.map((o) => {
+        if (o.id !== orderId) return o;
+        const newPaid = o.amountPaid + amount;
+        const total = o.items.reduce((sum, i) => sum + i.qty * i.unitPrice, 0) + (o.additionalCost ?? 0);
+        return {
+          ...o,
+          amountPaid: newPaid,
+          status: newPaid >= total ? "paid" : o.status,
+          payments: [...(o.payments ?? []), paymentRecord],
+        };
+      }),
+    }));
+    const order = get().pendingOrders.find((o) => o.id === orderId);
+    if (!order) return;
+    useToastStore.getState().addToast({ variant: "success", message: `Payment of ₱${amount.toLocaleString()} recorded for ${order.clientName}.` });
+    get().logAudit({
+      module: "pendingOrder",
+      entityId: orderId,
+      entityLabel: order.clientName,
+      action: "update",
+      changes: [{ field: "amountPaid", oldValue: order.amountPaid - amount, newValue: order.amountPaid }],
+      actor: "You",
+    });
+    // Payment confirmed — generate the real Invoice now, carrying over the
+    // order's items/additionalCost/payments (the "Invoice Generation" step).
+    if (order.status === "paid") {
+      get().addInvoice({
+        clientId: order.clientId,
+        clientName: order.clientName,
+        issueDate: new Date().toISOString().slice(0, 10),
+        dueDate: new Date().toISOString().slice(0, 10),
+        items: order.items,
+        additionalCost: order.additionalCost,
+        additionalCostNote: order.additionalCostNote,
+        amountPaid: 0,
+        status: "unpaid",
+      });
+      const newInvoice = get().invoices[0];
+      for (const p of order.payments ?? []) {
+        get().recordPayment(newInvoice.id, p.amount, {
+          url: p.proofUrl,
+          fileName: p.proofFileName,
+          paidWithoutProof: p.paidWithoutProof,
+          method: p.method,
+        });
+      }
+      set((s) => ({
+        pendingOrders: s.pendingOrders.map((o) => (o.id === orderId ? { ...o, status: "invoiced", invoiceId: newInvoice.id } : o)),
+      }));
+      get().logAudit({ module: "pendingOrder", entityId: orderId, entityLabel: order.clientName, action: "update", changes: [{ field: "status", oldValue: "paid", newValue: "invoiced" }], actor: "You" });
+    }
+  },
+
+  recordBulkPayment: (allocations, method, proof) => {
+    for (const { clientId, amount } of allocations) {
+      if (amount <= 0) continue;
+      let remaining = amount;
+      const openInvoices = get()
+        .invoices.filter((inv) => inv.clientId === clientId && inv.status !== "paid")
+        .sort((a, b) => a.issueDate.localeCompare(b.issueDate));
+      for (const inv of openInvoices) {
+        if (remaining <= 0) break;
+        const total = inv.items.reduce((sum, i) => sum + i.qty * i.unitPrice, 0) + (inv.additionalCost ?? 0);
+        const owed = total - inv.amountPaid;
+        if (owed <= 0) continue;
+        const portion = Math.min(owed, remaining);
+        get().recordPayment(inv.id, portion, { ...proof, method });
+        remaining -= portion;
+      }
+    }
+    useToastStore.getState().addToast({
+      variant: "success",
+      message: `Bulk payment applied across ${allocations.length} account(s).`,
+    });
+  },
+
+  addExpense: (expense) => {
+    const id = nextId("exp");
+    const newExpense: Expense = { ...expense, id };
+    set((s) => ({ expenses: [newExpense, ...s.expenses] }));
+    get().logAudit({ module: "expense", entityId: id, entityLabel: expense.category, action: "create", changes: [], actor: "You" });
+    useToastStore.getState().addToast({ variant: "success", message: `Expense of ₱${expense.amount.toLocaleString()} logged.` });
+  },
+
+  deleteExpense: (id) => {
+    const expense = get().expenses.find((e) => e.id === id);
+    if (!expense) return;
+    set((s) => ({ expenses: s.expenses.filter((e) => e.id !== id) }));
+    get().logAudit({ module: "expense", entityId: id, entityLabel: expense.category, action: "delete", changes: [], actor: "You" });
   },
 
   logActivity: (item) => {

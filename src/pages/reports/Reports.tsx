@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { BarChart3, Boxes, Package, Users, Wrench } from "lucide-react";
+import { useMemo, useState } from "react";
+import { BarChart3, Boxes, Package, Users, Wrench, Wallet } from "lucide-react";
 import { ResponsiveBar } from "@nivo/bar";
 import { ResponsivePie } from "@nivo/pie";
 import { PageHeader } from "@/components/shared/page-header";
@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/mobile-list";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Pagination } from "@/components/shared/pagination";
@@ -14,20 +16,40 @@ import { useCrmStore } from "@/store/crmStore";
 import { formatCurrency } from "@/lib/utils";
 import { CHART_COLORS, nivoTheme } from "@/lib/nivo-theme";
 import { usePagination } from "@/lib/use-pagination";
+import type { ClientSource } from "@/types";
 import {
   getInventoryReport,
   getProductReport,
   getClientPurchaseReport,
   getClientServicesReport,
+  getCashFlowReport,
+  periodStart,
+  type ReportPeriod,
 } from "@/lib/reports";
 
+const clientSourceOptions: ClientSource[] = ["GMIC", "Imperial", "MegaSaver", "Alfamart"];
+const periodOptions: { value: ReportPeriod; label: string }[] = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+];
+
 export default function Reports() {
-  const { inventory, invoices, clients, schedule } = useCrmStore();
+  const { inventory, invoices, clients, schedule, purchaseBatches, expenses } = useCrmStore();
+  const [purchasesSource, setPurchasesSource] = useState<ClientSource | "all">("all");
+  const [financialPeriod, setFinancialPeriod] = useState<ReportPeriod>("monthly");
 
   const inventoryReport = useMemo(() => getInventoryReport(inventory), [inventory]);
   const productReport = useMemo(() => getProductReport(inventory, invoices), [inventory, invoices]);
-  const clientPurchaseReport = useMemo(() => getClientPurchaseReport(clients, invoices), [clients, invoices]);
+  const clientPurchaseReport = useMemo(
+    () => getClientPurchaseReport(clients, invoices, purchasesSource),
+    [clients, invoices, purchasesSource]
+  );
   const clientServiceReport = useMemo(() => getClientServicesReport(clients, schedule), [clients, schedule]);
+  const cashFlowReport = useMemo(
+    () => getCashFlowReport(invoices, purchaseBatches, expenses, periodStart(financialPeriod, new Date())),
+    [invoices, purchaseBatches, expenses, financialPeriod]
+  );
 
   const totalRevenue = useMemo(
     () => productReport.rows.reduce((sum, r) => sum + r.revenue, 0),
@@ -81,6 +103,9 @@ export default function Reports() {
         <TabsList>
           <TabsTrigger value="overview">
             <BarChart3 className="h-3.5 w-3.5" /> Overview
+          </TabsTrigger>
+          <TabsTrigger value="financial">
+            <Wallet className="h-3.5 w-3.5" /> Financial
           </TabsTrigger>
           <TabsTrigger value="inventory">
             <Boxes className="h-3.5 w-3.5" /> Inventory
@@ -208,6 +233,41 @@ export default function Reports() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="financial" className="space-y-6">
+          <div className="flex items-center justify-end gap-2">
+            <Label className="text-xs text-ink-500">Period</Label>
+            <Select value={financialPeriod} onValueChange={(v) => setFinancialPeriod(v as ReportPeriod)}>
+              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {periodOptions.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Card><CardContent className="p-5">
+              <p className="text-xs font-medium uppercase text-ink-500">Cash-In</p>
+              <p className="mt-1 font-display text-xl font-semibold text-brand-green-600">{formatCurrency(cashFlowReport.cashIn)}</p>
+              <p className="mt-1 text-xs text-ink-400">Payments received this period</p>
+            </CardContent></Card>
+            <Card><CardContent className="p-5">
+              <p className="text-xs font-medium uppercase text-ink-500">Cash-Out</p>
+              <p className="mt-1 font-display text-xl font-semibold text-brand-crimson-600">{formatCurrency(cashFlowReport.cashOut)}</p>
+              <p className="mt-1 text-xs text-ink-400">
+                Materials/units {formatCurrency(cashFlowReport.cashOutBreakdown.materials)} · Expenses {formatCurrency(cashFlowReport.cashOutBreakdown.expenses)}
+              </p>
+            </CardContent></Card>
+            <Card><CardContent className="p-5">
+              <p className="text-xs font-medium uppercase text-ink-500">Cash-on-Hand</p>
+              <p className={`mt-1 font-display text-xl font-semibold ${cashFlowReport.cashOnHand >= 0 ? "text-ink-800" : "text-brand-crimson-600"}`}>
+                {formatCurrency(cashFlowReport.cashOnHand)}
+              </p>
+              <p className="mt-1 text-xs text-ink-400">All-time cash-in minus cash-out</p>
+            </CardContent></Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="inventory" className="space-y-6">
@@ -338,6 +398,18 @@ export default function Reports() {
         </TabsContent>
 
         <TabsContent value="purchases" className="space-y-6">
+          <div className="flex items-center justify-end gap-2">
+            <Label className="text-xs text-ink-500">Source</Label>
+            <Select value={purchasesSource} onValueChange={(v) => setPurchasesSource(v as ClientSource | "all")}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All sources</SelectItem>
+                {clientSourceOptions.map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           {clientPurchaseReport.rows.length === 0 ? (
             <EmptyState icon={Users} title="No clients yet" description="Client purchase totals will appear here once clients are added." />
           ) : (

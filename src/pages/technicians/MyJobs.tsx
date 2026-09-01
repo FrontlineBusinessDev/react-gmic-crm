@@ -131,7 +131,7 @@ const confirmCopy: Record<
     title: "Mark product as installed?",
     description:
       "This confirms the installation is complete. The office will automatically get an invoice for this job, the product's warranty will start, and the next PMS visit will be scheduled.",
-    confirmLabel: "Mark Installed",
+    confirmLabel: "Mark Done",
     variant: "brand",
   },
   cancelled: {
@@ -977,7 +977,7 @@ export default function MyJobs() {
                       size="sm"
                       onClick={() => openMaterialsForm("installed")}
                     >
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Mark Installed
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Mark Done
                     </Button>
                   ) : activeJob.type === "Survey" ? (
                     <Button variant="brand" size="sm" onClick={openSurveyForm}>
@@ -1083,10 +1083,10 @@ export default function MyJobs() {
                   <Receipt className="mt-0.5 h-4 w-4 shrink-0 text-brand-blue-600" />
                   <div>
                     <p className="font-medium text-ink-800">
-                      Invoice {installOutcome.invoiceNumber} created
+                      Pending order created — awaiting payment
                     </p>
                     <p className="text-xs text-ink-500">
-                      The Financial team has been notified to follow up on payment.
+                      The Financial team can record payment on this order; the invoice generates automatically once it's confirmed paid.
                     </p>
                   </div>
                 </div>

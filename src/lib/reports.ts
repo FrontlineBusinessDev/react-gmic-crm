@@ -1,4 +1,4 @@
-import type { Client, InventoryItem, Invoice, ScheduleJob } from "@/types";
+import type { Client, ClientSource, Expense, InventoryItem, Invoice, PurchaseBatch, ScheduleJob } from "@/types";
 
 export interface InventoryReportRow {
   id: string;
@@ -78,13 +78,13 @@ export interface ClientPurchaseReportRow {
   invoiceCount: number;
 }
 
-export function getClientPurchaseReport(clients: Client[], invoices: Invoice[]) {
+export function getClientPurchaseReport(clients: Client[], invoices: Invoice[], source?: ClientSource | "all") {
   const invoiceCounts = new Map<string, number>();
   for (const inv of invoices) {
     invoiceCounts.set(inv.clientId, (invoiceCounts.get(inv.clientId) ?? 0) + 1);
   }
   const rows: ClientPurchaseReportRow[] = clients
-    .filter((c) => c.status !== "archived")
+    .filter((c) => c.status !== "archived" && (!source || source === "all" || c.source === source))
     .map((c) => ({
       clientId: c.id,
       clientName: c.name,
@@ -125,4 +125,71 @@ export function getClientServicesReport(clients: Client[], schedule: ScheduleJob
     })
     .sort((a, b) => b.completedJobs - a.completedJobs);
   return { rows };
+}
+
+export type ReportPeriod = "daily" | "weekly" | "monthly";
+
+/** Start-of-range ISO date (inclusive) for the given period, anchored to `today`. */
+export function periodStart(period: ReportPeriod, today: Date): string {
+  const d = new Date(today);
+  if (period === "daily") {
+    // just today
+  } else if (period === "weekly") {
+    d.setDate(d.getDate() - d.getDay());
+  } else {
+    d.setDate(1);
+  }
+  return d.toISOString().slice(0, 10);
+}
+
+export interface CashFlowReport {
+  cashIn: number;
+  cashOut: number;
+  cashOnHand: number;
+  cashOutBreakdown: { materials: number; expenses: number };
+}
+
+/** Cash-in (payments received) vs cash-out (purchase batches + expenses) for
+ * dates within [rangeStart, today], plus an all-time cash-on-hand figure. */
+export function getCashFlowReport(
+  invoices: Invoice[],
+  purchaseBatches: PurchaseBatch[],
+  expenses: Expense[],
+  rangeStart: string
+): CashFlowReport {
+  const inRange = (iso: string) => iso.slice(0, 10) >= rangeStart;
+
+  let cashIn = 0;
+  let allTimeCashIn = 0;
+  for (const inv of invoices) {
+    for (const p of inv.payments ?? []) {
+      allTimeCashIn += p.amount;
+      if (inRange(p.date)) cashIn += p.amount;
+    }
+  }
+
+  let materialsOut = 0;
+  let allTimeMaterialsOut = 0;
+  for (const batch of purchaseBatches) {
+    if (batch.status === "cancelled") continue;
+    allTimeMaterialsOut += batch.totalCost;
+    if (inRange(batch.createdAt)) materialsOut += batch.totalCost;
+  }
+
+  let expensesOut = 0;
+  let allTimeExpensesOut = 0;
+  for (const exp of expenses) {
+    allTimeExpensesOut += exp.amount;
+    if (inRange(exp.date)) expensesOut += exp.amount;
+  }
+
+  const cashOut = materialsOut + expensesOut;
+  const allTimeCashOut = allTimeMaterialsOut + allTimeExpensesOut;
+
+  return {
+    cashIn,
+    cashOut,
+    cashOnHand: allTimeCashIn - allTimeCashOut,
+    cashOutBreakdown: { materials: materialsOut, expenses: expensesOut },
+  };
 }

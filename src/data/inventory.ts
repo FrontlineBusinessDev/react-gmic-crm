@@ -109,6 +109,7 @@ export const mockInventory: InventoryItem[] = [
     reorderLevel: 100,
     unitCost: 185,
     unitPrice: 260,
+    unit: "meter",
     supplier: "Laguna Pipe & Fitting Supply",
   },
   {
@@ -120,6 +121,7 @@ export const mockInventory: InventoryItem[] = [
     reorderLevel: 100,
     unitCost: 110,
     unitPrice: 165,
+    unit: "meter",
     supplier: "Laguna Pipe & Fitting Supply",
   },
   {
@@ -131,6 +133,7 @@ export const mockInventory: InventoryItem[] = [
     reorderLevel: 15,
     unitCost: 650,
     unitPrice: 950,
+    unit: "piece",
     supplier: "Sta. Rosa Hardware Depot",
   },
   {
@@ -142,6 +145,7 @@ export const mockInventory: InventoryItem[] = [
     reorderLevel: 10,
     unitCost: 220,
     unitPrice: 380,
+    unit: "piece",
     supplier: "Laguna Electrical Supply",
   },
   {
@@ -153,6 +157,7 @@ export const mockInventory: InventoryItem[] = [
     reorderLevel: 6,
     unitCost: 1450,
     unitPrice: 2400,
+    unit: "piece",
     supplier: "Laguna Electrical Supply",
   },
   {
@@ -164,6 +169,7 @@ export const mockInventory: InventoryItem[] = [
     reorderLevel: 15,
     unitCost: 950,
     unitPrice: 1400,
+    unit: "kg",
     supplier: "Coolgas Distributors Inc.",
   },
   {
@@ -198,6 +204,7 @@ export const mockInventory: InventoryItem[] = [
     reorderLevel: 8,
     unitCost: 480,
     unitPrice: 750,
+    unit: "piece",
     supplier: "Laguna Electrical Supply",
   },
   {
@@ -209,6 +216,7 @@ export const mockInventory: InventoryItem[] = [
     reorderLevel: 5,
     unitCost: 890,
     unitPrice: 1450,
+    unit: "piece",
     supplier: "Laguna Electrical Supply",
   },
   {
@@ -220,6 +228,7 @@ export const mockInventory: InventoryItem[] = [
     reorderLevel: 80,
     unitCost: 45,
     unitPrice: 75,
+    unit: "meter",
     supplier: "Laguna Pipe & Fitting Supply",
   },
   {

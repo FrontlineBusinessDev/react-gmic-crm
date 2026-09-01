@@ -12,6 +12,7 @@ import {
   ListFilter,
   Users,
   FileUp,
+  Wallet,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card } from "@/components/ui/card";
@@ -79,6 +80,7 @@ import type {
   ClientStatus,
   ProjectStatus,
   Unit,
+  PaymentMethod,
 } from "@/types";
 
 const clientSourceOptions: ClientSource[] = [
@@ -186,6 +188,7 @@ export default function ClientsList() {
     inventory,
     inventoryCategories,
     markSerializedUnitInstalled,
+    recordBulkPayment,
   } = useCrmStore();
   const activeServiceCatalog = useMemo(
     () => serviceCatalog.filter((s) => (s.status ?? "active") === "active"),
@@ -201,6 +204,11 @@ export default function ClientsList() {
     () => ["all", ...clientSourceOptions] as (ClientSource | "all")[],
     [],
   );
+  const [bulkPaymentMode, setBulkPaymentMode] = useState(false);
+  const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
+  const [bulkAmounts, setBulkAmounts] = useState<Record<string, string>>({});
+  const [bulkPayOpen, setBulkPayOpen] = useState(false);
+  const [bulkPayMethod, setBulkPayMethod] = useState<PaymentMethod>("Cash");
   const orderedActiveStages = useMemo(
     () => sortStagesForLifecycle(pipelineStages.filter((s) => s.status === "active")),
     [pipelineStages],
@@ -330,6 +338,39 @@ export default function ClientsList() {
       else next.add(field);
       return next;
     });
+  }
+
+  function toggleClientSelected(id: string) {
+    setSelectedClientIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const selectedClients = useMemo(
+    () => clients.filter((c) => selectedClientIds.has(c.id) && c.balance > 0),
+    [clients, selectedClientIds],
+  );
+
+  function openBulkPayment() {
+    const amounts: Record<string, string> = {};
+    for (const c of selectedClients) amounts[c.id] = String(c.balance);
+    setBulkAmounts(amounts);
+    setBulkPayMethod("Cash");
+    setBulkPayOpen(true);
+  }
+
+  function handleBulkPayment() {
+    const allocations = selectedClients
+      .map((c) => ({ clientId: c.id, amount: Number(bulkAmounts[c.id]) || 0 }))
+      .filter((a) => a.amount > 0);
+    if (allocations.length === 0) return;
+    recordBulkPayment(allocations, bulkPayMethod);
+    setBulkPayOpen(false);
+    setSelectedClientIds(new Set());
+    setBulkPaymentMode(false);
   }
 
   const filtered = useMemo(() => {
@@ -503,6 +544,15 @@ export default function ClientsList() {
         description="Every client and their unit history, in one place."
         actions={
           <div className="flex items-center gap-2">
+            <Button
+              variant={bulkPaymentMode ? "brand" : "outline"}
+              onClick={() => {
+                setBulkPaymentMode((v) => !v);
+                setSelectedClientIds(new Set());
+              }}
+            >
+              <Wallet className="h-4 w-4" /> Multiple Payment
+            </Button>
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <FileUp className="h-4 w-4" /> Import CSV
             </Button>
@@ -978,23 +1028,29 @@ export default function ClientsList() {
                                         return (
                                           <div key={m.itemId} className="flex items-center justify-between gap-2 text-xs">
                                             <span className="truncate text-ink-600">{item.name}</span>
-                                            <Input
-                                              type="number"
-                                              min={1}
-                                              max={item.quantityOnHand}
-                                              step={1}
-                                              value={m.qty}
-                                              onChange={(e) => {
-                                                const raw = Number(e.target.value) || 1;
-                                                const qty = Math.min(Math.max(raw, 1), item.quantityOnHand);
-                                                updateUnitDraft(unit.key, {
-                                                  materials: unit.materials.map((mm) =>
-                                                    mm.itemId === m.itemId ? { ...mm, qty } : mm
-                                                  ),
-                                                });
-                                              }}
-                                              className="h-7 w-16 text-xs"
-                                            />
+                                            <div className="flex items-center gap-2">
+                                              <Input
+                                                type="number"
+                                                min={1}
+                                                max={item.quantityOnHand}
+                                                step={1}
+                                                value={m.qty}
+                                                onChange={(e) => {
+                                                  const raw = Number(e.target.value) || 1;
+                                                  const qty = Math.min(Math.max(raw, 1), item.quantityOnHand);
+                                                  updateUnitDraft(unit.key, {
+                                                    materials: unit.materials.map((mm) =>
+                                                      mm.itemId === m.itemId ? { ...mm, qty } : mm
+                                                    ),
+                                                  });
+                                                }}
+                                                className="h-7 w-16 text-xs"
+                                              />
+                                              <span className="w-8 text-ink-400">{item.unit ?? "pc"}</span>
+                                              <span className="w-20 shrink-0 text-right font-medium text-ink-700">
+                                                {formatCurrency(m.qty * item.unitCost)}
+                                              </span>
+                                            </div>
                                           </div>
                                         );
                                       })}
@@ -1214,6 +1270,19 @@ export default function ClientsList() {
             )}
           </div>
 
+          {bulkPaymentMode && (
+            <div className="flex items-center justify-between rounded-lg border border-brand-blue-200 bg-brand-blue-50/60 px-4 py-2.5">
+              <p className="text-sm text-ink-700">
+                {selectedClients.length > 0
+                  ? `${selectedClients.length} client(s) selected — ${formatCurrency(selectedClients.reduce((s, c) => s + c.balance, 0))} total outstanding`
+                  : "Select client accounts with an outstanding balance to apply one payment."}
+              </p>
+              <Button variant="brand" size="sm" disabled={selectedClients.length === 0} onClick={openBulkPayment}>
+                <Wallet className="h-3.5 w-3.5" /> Record Bulk Payment
+              </Button>
+            </div>
+          )}
+
           <Card>
             {filtered.length === 0 ? (
               <div className="p-6">
@@ -1231,16 +1300,35 @@ export default function ClientsList() {
                   {pageItems.map((client) => (
                     <MobileListCard
                       key={client.id}
-                      onClick={() => navigate(`/clients/${client.id}`)}
+                      onClick={() =>
+                        bulkPaymentMode
+                          ? client.balance > 0 && toggleClientSelected(client.id)
+                          : navigate(`/clients/${client.id}`)
+                      }
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-medium text-ink-800">
-                            {client.name}
-                          </p>
-                          <p className="text-xs text-ink-400">
-                            {client.tags.join(" · ") || "—"}
-                          </p>
+                        <div className="flex items-start gap-2">
+                          {bulkPaymentMode && (
+                            <input
+                              type="checkbox"
+                              className="mt-1 h-3.5 w-3.5 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400 disabled:opacity-40"
+                              checked={selectedClientIds.has(client.id)}
+                              disabled={client.balance <= 0}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleClientSelected(client.id);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          )}
+                          <div>
+                            <p className="font-medium text-ink-800">
+                              {client.name}
+                            </p>
+                            <p className="text-xs text-ink-400">
+                              {client.tags.join(" · ") || "—"}
+                            </p>
+                          </div>
                         </div>
                         <div className="flex flex-col items-end gap-1">
                           <ClientStatusBadge status={client.status} />
@@ -1305,6 +1393,7 @@ export default function ClientsList() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        {bulkPaymentMode && <TableHead />}
                         <TableHead>Client</TableHead>
                         <TableHead>Contact</TableHead>
                         <TableHead>Products</TableHead>
@@ -1318,9 +1407,24 @@ export default function ClientsList() {
                       {pageItems.map((client) => (
                         <TableRow
                           key={client.id}
-                          onClick={() => navigate(`/clients/${client.id}`)}
+                          onClick={() =>
+                            bulkPaymentMode
+                              ? client.balance > 0 && toggleClientSelected(client.id)
+                              : navigate(`/clients/${client.id}`)
+                          }
                           className="group cursor-pointer transition-colors hover:bg-brand-blue-50/60"
                         >
+                          {bulkPaymentMode && (
+                            <TableCell onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                className="h-3.5 w-3.5 rounded border-ink-300 text-brand-blue-500 focus:ring-brand-blue-400 disabled:opacity-40"
+                                checked={selectedClientIds.has(client.id)}
+                                disabled={client.balance <= 0}
+                                onChange={() => toggleClientSelected(client.id)}
+                              />
+                            </TableCell>
+                          )}
                           <TableCell>
                             <Link
                               to={`/clients/${client.id}`}
@@ -1419,6 +1523,58 @@ export default function ClientsList() {
           <AuditLogTable entries={clientAuditEntries} />
         </TabsContent>
       </Tabs>
+
+      <Dialog open={bulkPayOpen} onOpenChange={setBulkPayOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Record bulk payment</DialogTitle>
+            <DialogDescription>
+              One payment applied across {selectedClients.length} selected account(s) — each amount defaults to that account's full outstanding balance and can be edited.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="max-h-64 space-y-2 overflow-y-auto">
+              {selectedClients.map((c) => (
+                <div key={c.id} className="flex items-center justify-between gap-3 rounded-lg border border-ink-100 p-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-ink-800">{c.name}</p>
+                    <p className="text-xs text-ink-400">Balance: {formatCurrency(c.balance)}</p>
+                  </div>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={c.balance}
+                    value={bulkAmounts[c.id] ?? ""}
+                    onChange={(e) => setBulkAmounts({ ...bulkAmounts, [c.id]: e.target.value })}
+                    className="h-8 w-28 text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between border-t border-ink-100 pt-3 text-sm">
+              <span className="font-medium text-ink-700">Total payment</span>
+              <span className="font-semibold text-ink-800">
+                {formatCurrency(Object.values(bulkAmounts).reduce((s, v) => s + (Number(v) || 0), 0))}
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Mode of payment</Label>
+              <Select value={bulkPayMethod} onValueChange={(v) => setBulkPayMethod(v as PaymentMethod)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(["Cash", "Bank Transfer", "GCash", "Check", "Other"] as PaymentMethod[]).map((m) => (
+                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkPayOpen(false)}>Cancel</Button>
+            <Button variant="brand" onClick={handleBulkPayment}>Record Payment</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

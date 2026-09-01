@@ -94,7 +94,6 @@ export default function Inventory() {
     archiveInventoryCategory,
     restoreInventoryCategory,
     addPurchaseBatch,
-    receivePurchaseBatch,
     cancelPurchaseBatch,
     auditLog,
     reorderRequests,
@@ -110,9 +109,10 @@ export default function Inventory() {
     [inventoryCategories]
   );
   const activeBrands = useMemo(() => brands.filter((b) => b.status === "active"), [brands]);
-  const batchableInventory = useMemo(
-    () => inventory.filter((i) => (i.status ?? "active") === "active" && i.category !== "AC Unit"),
-    [inventory]
+  // Batches stay materials/parts-scoped — AC units (serialized) aren't received via a batch.
+  const batchableCategories = useMemo(
+    () => activeCategories.filter((c) => !c.tracksSerials),
+    [activeCategories]
   );
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -337,6 +337,9 @@ export default function Inventory() {
           requestId: req.id,
           inventoryItemId: req.inventoryItemId,
           itemName: req.itemName,
+          sku: item?.sku ?? "",
+          category: item?.category,
+          unit: item?.unit,
           quantity: req.quantityRequested,
           unitCost: item?.unitCost ?? 0,
           skusInput: "",
@@ -358,6 +361,9 @@ export default function Inventory() {
       lines: convertLines.map((l) => ({
         inventoryItemId: l.inventoryItemId,
         itemName: l.itemName,
+        sku: l.sku,
+        category: l.category,
+        unit: l.unit,
         quantity: l.quantity,
         unitCost: l.unitCost,
         skus: parseSkus(l.skusInput),
@@ -505,11 +511,21 @@ export default function Inventory() {
   }
 
   function addBatchLine() {
-    const first = batchableInventory[0];
-    if (!first) return;
     setBatchForm((f) => ({
       ...f,
-      lines: [...f.lines, { key: `bl-${Date.now()}`, inventoryItemId: first.id, itemName: first.name, quantity: 1, unitCost: first.unitCost, skusInput: "" }],
+      lines: [
+        ...f.lines,
+        {
+          key: `bl-${Date.now()}`,
+          itemName: "",
+          sku: "",
+          category: batchableCategories[0]?.name,
+          unit: "piece",
+          quantity: 1,
+          unitCost: 0,
+          skusInput: "",
+        },
+      ],
     }));
   }
 
@@ -523,11 +539,14 @@ export default function Inventory() {
 
   function handleSaveBatch() {
     if (!batchForm.supplier || batchForm.lines.length === 0) return;
+    if (batchForm.lines.some((l) => !l.itemName.trim() || !l.sku.trim())) return;
     addPurchaseBatch({
       supplier: batchForm.supplier,
       lines: batchForm.lines.map((l) => ({
-        inventoryItemId: l.inventoryItemId,
-        itemName: l.itemName,
+        itemName: l.itemName.trim(),
+        sku: l.sku.trim(),
+        category: l.category,
+        unit: l.unit,
         quantity: l.quantity,
         unitCost: l.unitCost,
         skus: parseSkus(l.skusInput),
@@ -951,11 +970,8 @@ export default function Inventory() {
                     <MobileListRow label="Lines">{batch.lines.length}</MobileListRow>
                     <MobileListRow label="Total cost">{formatCurrency(batch.totalCost)}</MobileListRow>
                     <MobileListRow label="Created">{new Date(batch.createdAt).toLocaleDateString()}</MobileListRow>
-                    {batch.status === "open" && (
+                    {batch.status !== "cancelled" && (
                       <div className="flex items-center justify-end gap-1 pt-1">
-                        <Button size="sm" variant="brand" onClick={(e) => { e.stopPropagation(); receivePurchaseBatch(batch.id); }}>
-                          <PackageCheck className="h-3.5 w-3.5" /> Mark Received
-                        </Button>
                         <Button size="sm" variant="ghost" className="text-ink-500" onClick={(e) => { e.stopPropagation(); cancelPurchaseBatch(batch.id); }}>
                           <PackageX className="h-3.5 w-3.5" /> Cancel
                         </Button>
@@ -996,11 +1012,8 @@ export default function Inventory() {
                         </TableCell>
                         <TableCell className="text-sm text-ink-600">{batch.receivedAt ? new Date(batch.receivedAt).toLocaleDateString() : "—"}</TableCell>
                         <TableCell>
-                          {batch.status === "open" && (
+                          {batch.status !== "cancelled" && (
                             <div className="flex items-center justify-end gap-1">
-                              <Button size="sm" variant="brand" onClick={(e) => { e.stopPropagation(); receivePurchaseBatch(batch.id); }}>
-                                <PackageCheck className="h-3.5 w-3.5" /> Mark Received
-                              </Button>
                               <Button size="sm" variant="ghost" className="text-ink-500" onClick={(e) => { e.stopPropagation(); cancelPurchaseBatch(batch.id); }}>
                                 <PackageX className="h-3.5 w-3.5" /> Cancel
                               </Button>
@@ -1579,25 +1592,22 @@ export default function Inventory() {
               </Select>
             </div>
             <Label>Materials/Parts</Label>
+            <p className="text-xs text-ink-400">
+              Type each item's name and SKU — an existing SKU restocks that item, a new one registers it automatically.
+            </p>
             {batchForm.lines.length === 0 ? (
               <p className="text-xs text-ink-400 italic">No materials/parts added yet.</p>
             ) : (
               <div className="space-y-3">
                 {batchForm.lines.map((line) => {
-                  const item = inventory.find((i) => i.id === line.inventoryItemId);
-                  const tracksSerials = item && inventoryCategories.find((c) => c.name === item.category)?.tracksSerials;
+                  const tracksSerials = inventoryCategories.find((c) => c.name === line.category)?.tracksSerials;
                   return (
                     <div key={line.key} className="space-y-2 rounded-lg border border-ink-100 p-3">
                       <div className="flex items-center gap-2">
-                        <Combobox
-                          value={line.inventoryItemId}
-                          onChange={(v) => {
-                            const selected = inventory.find((i) => i.id === v);
-                            updateBatchLine(line.key, { inventoryItemId: v, itemName: selected?.name ?? "", unitCost: selected?.unitCost ?? line.unitCost });
-                          }}
-                          placeholder="Select item"
-                          searchPlaceholder="Search by name or SKU..."
-                          options={batchableInventory.map((i) => ({ value: i.id, label: i.name, sublabel: i.sku }))}
+                        <Input
+                          value={line.itemName}
+                          onChange={(e) => updateBatchLine(line.key, { itemName: e.target.value })}
+                          placeholder="Item name"
                           className="flex-1"
                         />
                         <Button type="button" size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-ink-400" onClick={() => removeBatchLine(line.key)}>
@@ -1606,12 +1616,40 @@ export default function Inventory() {
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
+                          <Label className="text-xs">SKU</Label>
+                          <Input value={line.sku} onChange={(e) => updateBatchLine(line.key, { sku: e.target.value })} placeholder="e.g. MAT-COPPER-3-8" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Category</Label>
+                          <Select value={line.category} onValueChange={(v) => updateBatchLine(line.key, { category: v })}>
+                            <SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger>
+                            <SelectContent>
+                              {batchableCategories.map((c) => (
+                                <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
                           <Label className="text-xs">Quantity</Label>
                           <Input type="number" min={1} value={line.quantity} onChange={(e) => updateBatchLine(line.key, { quantity: Number(e.target.value) || 1 })} />
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs">Unit cost (₱)</Label>
                           <Input type="number" min={0} value={line.unitCost} onChange={(e) => updateBatchLine(line.key, { unitCost: Number(e.target.value) || 0 })} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Unit</Label>
+                          <Select value={line.unit} onValueChange={(v) => updateBatchLine(line.key, { unit: v })}>
+                            <SelectTrigger><SelectValue placeholder="Unit" /></SelectTrigger>
+                            <SelectContent>
+                              {["piece", "meter", "foot", "kg", "liter", "box"].map((u) => (
+                                <SelectItem key={u} value={u}>{u}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
                       {tracksSerials && (
@@ -1631,7 +1669,15 @@ export default function Inventory() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setBatchOpen(false)}>Cancel</Button>
-            <Button variant="brand" disabled={!batchForm.supplier || batchForm.lines.length === 0} onClick={handleSaveBatch}>
+            <Button
+              variant="brand"
+              disabled={
+                !batchForm.supplier ||
+                batchForm.lines.length === 0 ||
+                batchForm.lines.some((l) => !l.itemName.trim() || !l.sku.trim())
+              }
+              onClick={handleSaveBatch}
+            >
               Save Batch
             </Button>
           </DialogFooter>
