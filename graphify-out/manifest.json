@@ -360,8 +360,8 @@
     "semantic_hash": ""
   },
   "src/pages/inventory/Inventory.tsx": {
-    "mtime": 1788265202.8826344,
-    "ast_hash": "dc676c7105a781890a233b6e6111bb2d",
+    "mtime": 1788266384.9704323,
+    "ast_hash": "d458b59f1bbe45233b5c26e5fa3f4db1",
     "semantic_hash": ""
   },
   "src/pages/leads/LeadsPipeline.tsx": {
@@ -532,6 +532,11 @@
   "src/data/expenses.ts": {
     "mtime": 1788265202.8704846,
     "ast_hash": "7d173b3b6804bdf6a78e01cfff1dbe81",
+    "semantic_hash": ""
+  },
+  ".claude/settings.local.json": {
+    "mtime": 1788267217.5773008,
+    "ast_hash": "f92414a614f0b2d14edba2124ff54e01",
     "semantic_hash": ""
   }
 }
