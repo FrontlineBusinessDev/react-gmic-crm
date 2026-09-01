@@ -1617,7 +1617,17 @@ export default function Inventory() {
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
                           <Label className="text-xs">SKU</Label>
-                          <Input value={line.sku} onChange={(e) => updateBatchLine(line.key, { sku: e.target.value })} placeholder="e.g. MAT-COPPER-3-8" />
+                          <Input
+                            value={line.sku}
+                            onChange={(e) => {
+                              const sku = e.target.value;
+                              const existing = sku.trim()
+                                ? inventory.find((i) => i.sku.toLowerCase() === sku.trim().toLowerCase())
+                                : undefined;
+                              updateBatchLine(line.key, existing ? { sku, category: existing.category, unit: existing.unit ?? line.unit } : { sku });
+                            }}
+                            placeholder="e.g. MAT-COPPER-3-8"
+                          />
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs">Category</Label>

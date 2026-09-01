@@ -103,7 +103,6 @@
   "101": "serviceCatalog.ts",
   "102": "suppliers.ts",
   "103": "users.ts",
-  "104": "invoice-pdf.ts",
   "105": "vercel.json",
   "106": "vite-env.d.ts",
   "107": "vite.config.ts",
