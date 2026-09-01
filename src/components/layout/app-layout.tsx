@@ -2,6 +2,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { SidebarNav } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
+import { ToastViewport } from "@/components/ui/toast";
 import { navItems } from "@/lib/nav";
 
 export function AppLayout() {
@@ -32,6 +33,7 @@ export function AppLayout() {
           </div>
         </main>
       </div>
+      <ToastViewport />
     </div>
   );
 }

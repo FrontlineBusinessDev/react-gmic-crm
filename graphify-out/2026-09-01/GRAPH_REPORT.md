@@ -1,16 +1,16 @@
 # Graph Report - react-gmic-crm  (2026-09-01)
 
 ## Corpus Check
-- 92 files · ~63,326 words
+- 96 files · ~65,632 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 706 nodes · 703 edges · 108 communities (47 shown, 61 thin omitted)
+- 728 nodes · 722 edges · 111 communities (48 shown, 63 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 3 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `608df84c`
+- Built from commit: `fcf15998`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -78,7 +78,7 @@
 - tsconfig.json
 - clsx
 - date-fns
-- framer-motion
+- Implementation Backlog — Spec Gaps
 - jspdf
 - lucide-react
 - @nivo/bar
@@ -115,6 +115,9 @@
 - suppliers.ts
 - users.ts
 - vercel.json
+- react-gmic-crm
+- class-variance-authority
+- pipelineStages.ts
 
 ## God Nodes (most connected - your core abstractions)
 1. `react` - 44 edges
@@ -135,15 +138,15 @@
 ## Import Cycles
 - None detected.
 
-## Communities (108 total, 61 thin omitted)
+## Communities (111 total, 63 thin omitted)
 
 ### Community 0 - "index.ts"
 Cohesion: 0.04
-Nodes (50): ActivityItem, AdditionalMaterialsUsage, AuditAction, AuditFieldChange, AuditLogEntry, AuditModule, BomLine, BrandDefinition (+42 more)
+Nodes (52): ActivityItem, AdditionalMaterialsUsage, AuditAction, AuditFieldChange, AuditLogEntry, AuditModule, BomLine, BrandDefinition (+44 more)
 
 ### Community 1 - "Inventory"
 Cohesion: 0.06
-Nodes (18): buildSerialPairs(), cancelEmailTemplate(), emptyBatchForm, emptyForm, Inventory(), callSupplier(), confirmCancelViaEmail(), INVENTORY_CSV_HEADERS (+10 more)
+Nodes (18): cancelEmailTemplate(), emptyBatchForm, emptyForm, Inventory(), callSupplier(), confirmCancelViaEmail(), INVENTORY_CSV_HEADERS, handleConvertToBatch() (+10 more)
 
 ### Community 2 - "compilerOptions"
 Cohesion: 0.07
@@ -155,11 +158,11 @@ Nodes (24): oxlint, devDependencies, oxlint, @types/node, @types/react, @types/r
 
 ### Community 4 - "ClientDetail"
 Cohesion: 0.11
-Nodes (14): ClientDetail(), openFollowupEmail(), clientSourceOptions, followupEmailTemplate(), formatDateTime(), invoiceBalance(), invoiceStatusFilters, isImageFileName() (+6 more)
+Nodes (13): ClientDetail(), openFollowupEmail(), clientSourceOptions, followupEmailTemplate(), formatDateTime(), invoiceBalance(), invoiceStatusFilters, isImageFileName() (+5 more)
 
 ### Community 5 - "ClientsList.tsx"
 Cohesion: 0.09
-Nodes (15): CLIENT_CSV_HEADERS, ClientSearchField, ClientsList(), addExistingUnitDraft(), addUnitDraft(), ClientSortBy, clientSourceOptions, emptyForm (+7 more)
+Nodes (14): CLIENT_CSV_HEADERS, ClientSearchField, ClientsList(), addExistingUnitDraft(), addUnitDraft(), ClientSortBy, clientSourceOptions, emptyForm (+6 more)
 
 ### Community 6 - "Financial"
 Cohesion: 0.11
@@ -167,7 +170,7 @@ Nodes (10): Financial(), FINANCIAL_CSV_HEADERS, handleAddInvoice(), openAddInvoi
 
 ### Community 7 - "status-badge.tsx"
 Cohesion: 0.09
-Nodes (11): clientStatusMap, inventoryStatusMap, invoiceStatusMap, jobStatusMap, projectStatusMap, reorderRequestStatusMap, roleStatusMap, serviceCatalogStatusMap (+3 more)
+Nodes (10): clientStatusMap, inventoryStatusMap, invoiceStatusMap, jobStatusMap, reorderRequestStatusMap, roleStatusMap, serviceCatalogStatusMap, supplierStatusMap (+2 more)
 
 ### Community 8 - "Schedule.tsx"
 Cohesion: 0.09
@@ -191,15 +194,15 @@ Nodes (6): react, Input, Label, PopoverContent, Progress, Textarea
 
 ### Community 13 - "BatchDetail"
 Cohesion: 0.17
-Nodes (3): BatchDetail(), formatSerialPairs(), sortFields
+Nodes (3): BatchDetail(), formatSkus(), sortFields
 
 ### Community 14 - "Suppliers"
 Cohesion: 0.15
 Nodes (4): emptyForm, statusFilters, SUPPLIER_CSV_HEADERS, Suppliers()
 
 ### Community 15 - "LeadsPipeline"
-Cohesion: 0.22
-Nodes (8): LeadsPipeline(), handleAdd(), handleConvert(), resetLeadForm(), runPendingAction(), sources, stageFilters, stages
+Cohesion: 0.24
+Nodes (6): LeadsPipeline(), handleAdd(), handleConvert(), resetLeadForm(), runPendingAction(), sources
 
 ### Community 16 - "ServiceCatalog"
 Cohesion: 0.20
@@ -207,7 +210,7 @@ Nodes (4): emptyForm, SERVICE_CSV_HEADERS, ServiceCatalog(), statusFilters
 
 ### Community 17 - "dependencies"
 Cohesion: 0.22
-Nodes (9): class-variance-authority, dependencies, class-variance-authority, react-router-dom, tailwind-merge, zustand, react-router-dom, tailwind-merge (+1 more)
+Nodes (9): framer-motion, dependencies, framer-motion, react-router-dom, tailwind-merge, zustand, react-router-dom, tailwind-merge (+1 more)
 
 ### Community 18 - "plugins"
 Cohesion: 0.22
@@ -293,20 +296,24 @@ Nodes (3): SelectContent, SelectItem, SelectTrigger
 Cohesion: 0.67
 Nodes (3): NotificationState, notificationVisibleToUser(), useNotificationStore
 
+### Community 64 - "Implementation Backlog — Spec Gaps"
+Cohesion: 0.11
+Nodes (18): 10. No bulk/multi-account invoicing by client source, 11. Reports missing expenses, cash-on-hand, source filter, and an In-Progress view, 1. Lead → Client conversion drops data; financial rollups never update, 2. Unit dropdown is Model→Serial only; Add Client has no serial lookup, 3. Batches are a two-step open→receive flow, not direct "received" entry, 4. No OPEX tracking (gas, allowances, payroll), 5. Scheduling requires service type; notes/photos aren't auto-filled, 6. No unified "Mark Done" action across job types (+10 more)
+
 ## Knowledge Gaps
-- **304 isolated node(s):** `$schema`, `typescript`, `oxc`, `react/rules-of-hooks`, `warn` (+299 more)
+- **314 isolated node(s):** `$schema`, `typescript`, `oxc`, `react/rules-of-hooks`, `warn` (+309 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **61 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **63 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `react` connect `react` to `Inventory`, `ClientDetail`, `ClientsList.tsx`, `Financial`, `Schedule.tsx`, `MyJobs`, `Settings`, `BatchDetail`, `Suppliers`, `LeadsPipeline`, `ServiceCatalog`, `plugins`, `dropdown-menu.tsx`, `CsvImportDialog`, `sheet.tsx`, `global-search.tsx`, `card.tsx`, `dialog.tsx`, `table.tsx`, `JobNotesPanel`, `tabs.tsx`, `date-picker.tsx`, `topbar.tsx`, `file-drop-zone.tsx`, `mobile-list.tsx`, `avatar.tsx`, `badge.tsx`, `button.tsx`, `select.tsx`, `Login.tsx`, `main.tsx`, `filter-button.tsx`, `filter-transition.tsx`, `page-header.tsx`, `use-pagination.ts`, `Parts.tsx`?**
-  _High betweenness centrality (0.260) - this node is a cross-community bridge._
+  _High betweenness centrality (0.241) - this node is a cross-community bridge._
 - **What connects `$schema`, `typescript`, `oxc` to the rest of the system?**
-  _304 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _314 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `index.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.0392156862745098 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.03773584905660377 - nodes in this community are weakly interconnected._
 - **Should `Inventory` be split into smaller, more focused modules?**
   _Cohesion score 0.05537098560354374 - nodes in this community are weakly interconnected._
 - **Should `compilerOptions` be split into smaller, more focused modules?**
@@ -314,4 +321,4 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `devDependencies` be split into smaller, more focused modules?**
   _Cohesion score 0.08 - nodes in this community are weakly interconnected._
 - **Should `ClientDetail` be split into smaller, more focused modules?**
-  _Cohesion score 0.10869565217391304 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.11462450592885376 - nodes in this community are weakly interconnected._

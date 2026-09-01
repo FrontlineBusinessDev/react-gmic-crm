@@ -63,7 +63,7 @@
   "61": "tsconfig.json",
   "62": "clsx",
   "63": "date-fns",
-  "64": "framer-motion",
+  "64": "Implementation Backlog — Spec Gaps",
   "65": "jspdf",
   "66": "lucide-react",
   "67": "@nivo/bar",
@@ -106,5 +106,8 @@
   "104": "invoice-pdf.ts",
   "105": "vercel.json",
   "106": "vite-env.d.ts",
-  "107": "vite.config.ts"
+  "107": "vite.config.ts",
+  "108": "react-gmic-crm",
+  "109": "class-variance-authority",
+  "110": "pipelineStages.ts"
 }

@@ -35,6 +35,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
+import { MultiCombobox } from "@/components/ui/multi-combobox";
 import {
   Dialog,
   DialogContent,
@@ -60,6 +61,7 @@ import { Pagination } from "@/components/shared/pagination";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { addMonthsIso, daysBetween, formatCurrency, formatDate } from "@/lib/utils";
+import { sortStagesForLifecycle } from "@/lib/pipelineOrder";
 import { exportInvoicePdf } from "@/lib/invoice-pdf";
 import type {
   ClientSource,
@@ -152,6 +154,7 @@ export default function ClientDetail() {
     inventoryCategories,
     brands,
     addUnitToClient,
+    serviceCatalog,
     markSerializedUnitInstalled,
     updateClient,
     updateClientProjectStatus,
@@ -161,8 +164,12 @@ export default function ClientDetail() {
     leads,
   } = useCrmStore();
   const client = clients.find((c) => c.id === id);
-  const postWonProjectStatuses = useMemo(
-    () => pipelineStages.filter((s) => s.kind === "client" && s.status === "active").sort((a, b) => a.order - b.order),
+  const activeServiceCatalog = useMemo(
+    () => serviceCatalog.filter((s) => (s.status ?? "active") === "active"),
+    [serviceCatalog]
+  );
+  const allProjectStatuses = useMemo(
+    () => sortStagesForLifecycle(pipelineStages.filter((s) => s.status === "active")),
     [pipelineStages]
   );
   const convertedFromLead = client?.convertedFromLeadId ? leads.find((l) => l.id === client.convertedFromLeadId) : undefined;
@@ -188,6 +195,7 @@ export default function ClientDetail() {
     location: "",
     warrantyMonths: 24,
   });
+  const [unitServiceIds, setUnitServiceIds] = useState<string[]>([]);
   const [linkedBrand, setLinkedBrand] = useState("");
   const [linkedItemId, setLinkedItemId] = useState("");
   const [linkedSerialId, setLinkedSerialId] = useState("");
@@ -364,14 +372,18 @@ export default function ClientDetail() {
     const brand = linkedItem ? linkedItem.brand ?? "" : unitForm.brand;
     const sku = linkedSerial ? linkedSerial.sku : unitForm.sku;
     if (!sku || !model) return;
-    addUnitToClient(client.id, {
-      ...unitForm,
-      model,
-      brand: brand || undefined,
-      sku,
-      installDate: new Date().toISOString().slice(0, 10),
-      status: "active",
-    });
+    addUnitToClient(
+      client.id,
+      {
+        ...unitForm,
+        model,
+        brand: brand || undefined,
+        sku,
+        installDate: new Date().toISOString().slice(0, 10),
+        status: "active",
+      },
+      unitServiceIds
+    );
     if (linkedItem && linkedSerial) {
       markSerializedUnitInstalled(linkedItem.id, linkedSerial.id);
     }
@@ -384,6 +396,7 @@ export default function ClientDetail() {
       location: "",
       warrantyMonths: 24,
     });
+    setUnitServiceIds([]);
     setLinkedItemId("");
     setLinkedSerialId("");
     setUnitDialogOpen(false);
@@ -439,12 +452,12 @@ export default function ClientDetail() {
           <Dialog open={unitDialogOpen} onOpenChange={setUnitDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="brand">
-                <Plus className="h-4 w-4" /> Add Unit
+                <Plus className="h-4 w-4" /> Add Product
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Add a unit to {client.name}</DialogTitle>
+                <DialogTitle>Add a product to {client.name}</DialogTitle>
                 <DialogDescription>
                   Each unit is tracked individually by SKU for
                   accurate service reporting.
@@ -630,6 +643,16 @@ export default function ClientDetail() {
                     }
                   />
                 </div>
+                <div className="space-y-1.5">
+                  <Label>Services (optional)</Label>
+                  <MultiCombobox
+                    options={activeServiceCatalog.map((s) => ({ value: s.id, label: s.name, sublabel: s.description }))}
+                    value={unitServiceIds}
+                    onChange={setUnitServiceIds}
+                    placeholder="No services"
+                    searchPlaceholder="Search services..."
+                  />
+                </div>
               </div>
               <DialogFooter>
                 <Button
@@ -639,7 +662,7 @@ export default function ClientDetail() {
                   Cancel
                 </Button>
                 <Button variant="brand" onClick={handleAddUnit}>
-                  Add Unit
+                  Add Product
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -689,7 +712,7 @@ export default function ClientDetail() {
                 </p>
                 {convertedFromLead.interestedUnit && (
                   <p className="text-ink-700">
-                    <span className="text-ink-400">Interested unit:</span> {convertedFromLead.interestedUnit}
+                    <span className="text-ink-400">Interested product:</span> {convertedFromLead.interestedUnit}
                   </p>
                 )}
                 {convertedFromLead.estimatedValue > 0 && (
@@ -735,11 +758,36 @@ export default function ClientDetail() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {postWonProjectStatuses.map((s) => (
+                  {allProjectStatuses.map((s) => (
                     <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5 pt-1 sm:col-span-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                  Services
+                </p>
+              </div>
+              {client.services && client.services.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {client.services.map((svc) => (
+                    <li
+                      key={svc.id}
+                      className="rounded-lg bg-ink-50 p-2.5 text-sm"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-ink-800">{svc.serviceName}</span>
+                        <span className="text-xs text-ink-400">{formatDate(svc.addedAt)}</span>
+                      </div>
+                      {svc.notes && <p className="text-xs text-ink-500">{svc.notes}</p>}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-ink-400">No services logged yet.</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -882,7 +930,7 @@ export default function ClientDetail() {
 
       <Tabs defaultValue="units">
         <TabsList>
-          <TabsTrigger value="units">Units ({client.units.length})</TabsTrigger>
+          <TabsTrigger value="units">Products ({client.units.length})</TabsTrigger>
           <TabsTrigger value="invoices">
             Invoices ({clientInvoices.length})
           </TabsTrigger>
@@ -893,8 +941,8 @@ export default function ClientDetail() {
           {client.units.length === 0 ? (
             <EmptyState
               icon={Snowflake}
-              title="No units on record"
-              description="Add the client's first unit to start tracking service history by SKU."
+              title="No products on record"
+              description="Add the client's first product to start tracking service history by SKU."
             />
           ) : (
             <div className="space-y-4">
@@ -1028,6 +1076,28 @@ export default function ClientDetail() {
                                   : `Expires ${formatDate(warranty.expiresOn)} (${warranty.daysLeft}d)`}
                               </p>
                             </div>
+                          </div>
+
+                          <div className="mt-4 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                                Services
+                              </p>
+                            </div>
+                            {unit.services && unit.services.length > 0 ? (
+                              <ul className="space-y-1.5">
+                                {unit.services.map((svc) => (
+                                  <li key={svc.id} className="rounded-lg bg-ink-50 p-2 text-sm">
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-medium text-ink-800">{svc.serviceName}</span>
+                                      <span className="text-xs text-ink-400">{formatDate(svc.addedAt)}</span>
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="text-sm text-ink-400">No services logged yet.</p>
+                            )}
                           </div>
 
                           <div className="mt-4 flex items-center justify-between">
@@ -1166,9 +1236,9 @@ export default function ClientDetail() {
                     );
                     const kindLabel =
                       kinds.size > 1
-                        ? "Unit + Service"
+                        ? "Product + Service"
                         : kinds.has("unit")
-                          ? "Unit"
+                          ? "Product"
                           : kinds.has("service")
                             ? "Service"
                             : null;

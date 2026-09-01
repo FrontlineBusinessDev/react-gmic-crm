@@ -27,6 +27,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
+import { MultiCombobox } from "@/components/ui/multi-combobox";
 import { FilterButton } from "@/components/shared/filter-button";
 import {
   Dialog,
@@ -71,6 +72,7 @@ import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { formatCurrency } from "@/lib/utils";
+import { sortStagesForLifecycle } from "@/lib/pipelineOrder";
 import type {
   Client,
   ClientSource,
@@ -102,7 +104,11 @@ const statusFilters: (ClientStatus | "all")[] = [
   "inactive",
   "archived",
 ];
-type UnitDraft = Omit<Unit, "id" | "serviceHistory"> & { key: string };
+type UnitDraft = Omit<Unit, "id" | "serviceHistory" | "services"> & {
+  key: string;
+  serviceIds: string[];
+  materials: { itemId: string; qty: number }[];
+};
 function emptyUnitDraft(): UnitDraft {
   return {
     key: `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -115,6 +121,8 @@ function emptyUnitDraft(): UnitDraft {
     warrantyMonths: 24,
     status: "active",
     location: "",
+    serviceIds: [],
+    materials: [],
   };
 }
 const emptyForm = {
@@ -123,6 +131,8 @@ const emptyForm = {
   email: "",
   address: "",
   source: "" as ClientSource | "",
+  projectStatus: "" as ProjectStatus | "",
+  serviceId: "",
   tags: "",
   units: [] as UnitDraft[],
 };
@@ -139,6 +149,8 @@ function unitDraftFromExisting(unit: Unit): UnitDraft {
     warrantyMonths: unit.warrantyMonths,
     status: unit.status,
     location: unit.location,
+    serviceIds: [],
+    materials: [],
   };
 }
 
@@ -155,7 +167,7 @@ const sortOptions: { key: ClientSortBy; label: string }[] = [
   { key: "createdAt", label: "Date added" },
   { key: "name", label: "Name" },
   { key: "balance", label: "Balance" },
-  { key: "units", label: "Unit count" },
+  { key: "units", label: "Product count" },
 ];
 
 export default function ClientsList() {
@@ -163,20 +175,35 @@ export default function ClientsList() {
   const {
     clients,
     addClient,
+    addClientService,
     updateClient,
     archiveClient,
     restoreClient,
     auditLog,
     brands,
     pipelineStages,
+    serviceCatalog,
     inventory,
     inventoryCategories,
     markSerializedUnitInstalled,
   } = useCrmStore();
+  const activeServiceCatalog = useMemo(
+    () => serviceCatalog.filter((s) => (s.status ?? "active") === "active"),
+    [serviceCatalog],
+  );
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<(typeof statusFilters)[number]>("all");
   const [projectStatus, setProjectStatus] = useState<ProjectStatus | "all">(
     "all",
+  );
+  const [source, setSource] = useState<ClientSource | "all">("all");
+  const sourceFilters = useMemo(
+    () => ["all", ...clientSourceOptions] as (ClientSource | "all")[],
+    [],
+  );
+  const orderedActiveStages = useMemo(
+    () => sortStagesForLifecycle(pipelineStages.filter((s) => s.status === "active")),
+    [pipelineStages],
   );
   const projectStatusFilters = useMemo(
     () =>
@@ -236,6 +263,18 @@ export default function ClientsList() {
         new Set(acUnitItems.map((i) => i.brand).filter(Boolean)),
       ) as string[],
     [acUnitItems],
+  );
+  // Non-serialized (Material/Spare Part category) in-stock items available to consume
+  // against a product being added.
+  const materialItems = useMemo(
+    () =>
+      inventory.filter(
+        (i) =>
+          (i.status ?? "active") === "active" &&
+          !inventoryCategories.find((c) => c.name === i.category)?.tracksSerials &&
+          i.quantityOnHand > 0,
+      ),
+    [inventory, inventoryCategories],
   );
   // Per-draft link-to-inventory selections, keyed by UnitDraft.key — transient UI state,
   // not persisted on the draft itself; resolved into markSerializedUnitInstalled calls
@@ -307,7 +346,8 @@ export default function ClientsList() {
       const matchesStatus = status === "all" || c.status === status;
       const matchesProjectStatus =
         projectStatus === "all" || c.projectStatus === projectStatus;
-      return matchesQuery && matchesStatus && matchesProjectStatus;
+      const matchesSource = source === "all" || c.source === source;
+      return matchesQuery && matchesStatus && matchesProjectStatus && matchesSource;
     });
     result.sort((a, b) => {
       let diff = 0;
@@ -318,13 +358,14 @@ export default function ClientsList() {
       return sortDir === "asc" ? diff : -diff;
     });
     return result;
-  }, [clients, query, status, projectStatus, searchFields, sortBy, sortDir]);
+  }, [clients, query, status, projectStatus, source, searchFields, sortBy, sortDir]);
 
   const { page, setPage, pageSize, setPageSize, pageItems, total } =
     usePagination(filtered, 10);
   const activeFilterCount =
     (status !== "all" ? 1 : 0) +
     (projectStatus !== "all" ? 1 : 0) +
+    (source !== "all" ? 1 : 0) +
     (sortBy !== "createdAt" || sortDir !== "desc" ? 1 : 0) +
     (searchFields.size !== 4 ? 1 : 0);
   const hasActiveFilters = query.trim() !== "" || activeFilterCount > 0;
@@ -333,6 +374,7 @@ export default function ClientsList() {
     setQuery("");
     setStatus("all");
     setProjectStatus("all");
+    setSource("all");
     setSortBy("createdAt");
     setSortDir("desc");
     setSearchFields(new Set(["name", "phone", "email", "address"]));
@@ -340,7 +382,7 @@ export default function ClientsList() {
 
   function openAdd() {
     setEditTarget(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, projectStatus: orderedActiveStages[0]?.id ?? "" });
     setUnitTab("new");
     setExistingUnitId("");
     setUnitLinks({});
@@ -355,6 +397,8 @@ export default function ClientsList() {
       email: client.email,
       address: client.address,
       source: client.source ?? "",
+      projectStatus: client.projectStatus,
+      serviceId: "",
       tags: client.tags.join(", "),
       units: [],
     });
@@ -426,6 +470,7 @@ export default function ClientsList() {
         email: form.email,
         address: form.address,
         source: form.source || undefined,
+        projectStatus: form.projectStatus || undefined,
         status: "active",
         tags,
         units,
@@ -435,6 +480,9 @@ export default function ClientsList() {
         if (link?.itemId && link.serialId) {
           markSerializedUnitInstalled(link.itemId, link.serialId);
         }
+      }
+      if (form.serviceId) {
+        addClientService(newClientId, { serviceId: form.serviceId });
       }
       setForm(emptyForm);
       setEditTarget(null);
@@ -472,7 +520,7 @@ export default function ClientsList() {
                   <DialogDescription>
                     {editTarget
                       ? "Update this client's details."
-                      : "Units can be added afterward from the client's profile."}
+                      : "Products can be added afterward from the client's profile."}
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-3">
@@ -538,6 +586,44 @@ export default function ClientsList() {
                       </SelectContent>
                     </Select>
                   </div>
+                  {!editTarget && (
+                    <div className="space-y-1.5">
+                      <Label>Project status</Label>
+                      <Select
+                        value={form.projectStatus}
+                        onValueChange={(value) =>
+                          setForm({ ...form, projectStatus: value as ProjectStatus })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {orderedActiveStages.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {s.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {!editTarget && (
+                    <div className="space-y-1.5">
+                      <Label>Add a service (optional)</Label>
+                      <Combobox
+                        options={activeServiceCatalog.map((s) => ({
+                          value: s.id,
+                          label: s.name,
+                          sublabel: s.description,
+                        }))}
+                        value={form.serviceId}
+                        onChange={(v) => setForm({ ...form, serviceId: v })}
+                        placeholder="No service"
+                        searchPlaceholder="Search services..."
+                      />
+                    </div>
+                  )}
                   <div className="space-y-1.5">
                     <Label>Tags (comma-separated)</Label>
                     <Input
@@ -551,9 +637,9 @@ export default function ClientsList() {
 
                   {!editTarget && (
                     <div className="space-y-1.5 rounded-lg border border-ink-100 bg-ink-50/60 p-3">
-                      <Label>Units (optional)</Label>
+                      <Label>Products (optional)</Label>
                       <p className="text-xs text-ink-400">
-                        Add as many units as needed now, or skip this and add
+                        Add as many products as needed now, or skip this and add
                         more later from the client's profile.
                       </p>
                       <div className="flex gap-2">
@@ -584,7 +670,7 @@ export default function ClientsList() {
                       </div>
                       {unitTab === "existing" && (
                         <div className="space-y-1.5">
-                          <Label className="text-xs">Existing unit</Label>
+                          <Label className="text-xs">Existing product</Label>
                           <Combobox
                             value={existingUnitId}
                             onChange={(v) => {
@@ -593,8 +679,8 @@ export default function ClientsList() {
                             }}
                             placeholder={
                               allExistingUnits.length
-                                ? "Select an existing unit..."
-                                : "No units in the system yet"
+                                ? "Select an existing product..."
+                                : "No products in the system yet"
                             }
                             searchPlaceholder="Search by model, SKU, or client..."
                             options={allExistingUnits.map(
@@ -741,36 +827,36 @@ export default function ClientsList() {
                                     />
                                   </div>
                                 </div>
-                                <div className="space-y-1">
-                                  <Label className="text-xs">Brand</Label>
-                                  <Select
-                                    value={unit.brand || undefined}
-                                    onValueChange={(v) =>
-                                      updateUnitDraft(unit.key, { brand: v })
-                                    }
-                                    disabled={
-                                      activeBrands.length === 0 || linked
-                                    }
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue
-                                        placeholder={
-                                          activeBrands.length === 0
-                                            ? "No brands yet"
-                                            : "Select a brand"
-                                        }
-                                      />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {activeBrands.map((b) => (
-                                        <SelectItem key={b.id} value={b.name}>
-                                          {b.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                                <div className="grid grid-cols-1 gap-2">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Brand</Label>
+                                    <Select
+                                      value={unit.brand || undefined}
+                                      onValueChange={(v) =>
+                                        updateUnitDraft(unit.key, { brand: v })
+                                      }
+                                      disabled={
+                                        activeBrands.length === 0 || linked
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue
+                                          placeholder={
+                                            activeBrands.length === 0
+                                              ? "No brands yet"
+                                              : "Select a brand"
+                                          }
+                                        />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {activeBrands.map((b) => (
+                                          <SelectItem key={b.id} value={b.name}>
+                                            {b.name}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
                                   <div className="space-y-1">
                                     <Label className="text-xs">SKU</Label>
                                     <Input
@@ -861,6 +947,74 @@ export default function ClientsList() {
                                     />
                                   </div>
                                 </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Materials / spare parts (optional)</Label>
+                                  <MultiCombobox
+                                    options={materialItems.map((i) => ({
+                                      value: i.id,
+                                      label: i.name,
+                                      sublabel: `${i.sku} · ${i.quantityOnHand} in stock`,
+                                    }))}
+                                    value={unit.materials.map((m) => m.itemId)}
+                                    onChange={(ids) =>
+                                      updateUnitDraft(unit.key, {
+                                        materials: ids.map(
+                                          (itemId) =>
+                                            unit.materials.find((m) => m.itemId === itemId) ?? {
+                                              itemId,
+                                              qty: 1,
+                                            }
+                                        ),
+                                      })
+                                    }
+                                    placeholder="No materials"
+                                    searchPlaceholder="Search materials..."
+                                  />
+                                  {unit.materials.length > 0 && (
+                                    <div className="space-y-1 pt-1">
+                                      {unit.materials.map((m) => {
+                                        const item = materialItems.find((i) => i.id === m.itemId);
+                                        if (!item) return null;
+                                        return (
+                                          <div key={m.itemId} className="flex items-center justify-between gap-2 text-xs">
+                                            <span className="truncate text-ink-600">{item.name}</span>
+                                            <Input
+                                              type="number"
+                                              min={1}
+                                              max={item.quantityOnHand}
+                                              step={1}
+                                              value={m.qty}
+                                              onChange={(e) => {
+                                                const raw = Number(e.target.value) || 1;
+                                                const qty = Math.min(Math.max(raw, 1), item.quantityOnHand);
+                                                updateUnitDraft(unit.key, {
+                                                  materials: unit.materials.map((mm) =>
+                                                    mm.itemId === m.itemId ? { ...mm, qty } : mm
+                                                  ),
+                                                });
+                                              }}
+                                              className="h-7 w-16 text-xs"
+                                            />
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Services (optional)</Label>
+                                  <MultiCombobox
+                                    options={activeServiceCatalog.map((s) => ({
+                                      value: s.id,
+                                      label: s.name,
+                                      sublabel: s.description,
+                                    }))}
+                                    value={unit.serviceIds}
+                                    onChange={(v) => updateUnitDraft(unit.key, { serviceIds: v })}
+                                    placeholder="No services"
+                                    searchPlaceholder="Search services..."
+                                  />
+                                </div>
                               </div>
                             );
                           })}
@@ -871,7 +1025,7 @@ export default function ClientsList() {
                             className="w-full"
                             onClick={addUnitDraft}
                           >
-                            <Plus className="h-3.5 w-3.5" /> Add another unit
+                            <Plus className="h-3.5 w-3.5" /> Add another product
                           </Button>
                         </div>
                       )}
@@ -965,6 +1119,24 @@ export default function ClientsList() {
                     {projectStatusFilters.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s === "all" ? "All project statuses" : s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Source</Label>
+                <Select
+                  value={source}
+                  onValueChange={(v) => setSource(v as typeof source)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sourceFilters.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s === "all" ? "All sources" : s}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1081,7 +1253,7 @@ export default function ClientsList() {
                           {client.email}
                         </span>
                       </MobileListRow>
-                      <MobileListRow label="Units">
+                      <MobileListRow label="Products">
                         {client.units.length}
                       </MobileListRow>
                       <MobileListRow label="Balance">
@@ -1135,7 +1307,7 @@ export default function ClientsList() {
                       <TableRow>
                         <TableHead>Client</TableHead>
                         <TableHead>Contact</TableHead>
-                        <TableHead>Units</TableHead>
+                        <TableHead>Products</TableHead>
                         <TableHead>Balance</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Project Status</TableHead>

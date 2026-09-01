@@ -34,9 +34,11 @@ import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { exportInvoicePdf } from "@/lib/invoice-pdf";
-import type { Invoice, InvoiceStatus, PaymentRecord } from "@/types";
+import type { ClientSource, Invoice, InvoiceStatus, PaymentRecord } from "@/types";
 
 const statusFilters: (InvoiceStatus | "all")[] = ["all", "unpaid", "partial", "paid", "overdue"];
+const clientSourceOptions: ClientSource[] = ["GMIC", "Imperial", "MegaSaver", "Alfamart"];
+const sourceFilters: (ClientSource | "all")[] = ["all", ...clientSourceOptions];
 const FINANCIAL_CSV_HEADERS = ["invoiceNumber", "clientId", "issueDate", "dueDate", "description", "qty", "unitPrice"];
 
 function isImageFileName(name?: string) {
@@ -108,6 +110,7 @@ export default function Financial() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<(typeof statusFilters)[number]>("all");
+  const [source, setSource] = useState<(typeof sourceFilters)[number]>("all");
   const [importOpen, setImportOpen] = useState(false);
 
   function handleFinancialImport(rows: Record<string, string>[]) {
@@ -168,17 +171,19 @@ export default function Financial() {
     return invoices.filter((inv) => {
       const matchesQuery = !q || inv.invoiceNumber.toLowerCase().includes(q) || inv.clientName.toLowerCase().includes(q);
       const matchesStatus = status === "all" || inv.status === status;
-      return matchesQuery && matchesStatus;
+      const matchesSource = source === "all" || clients.find((c) => c.id === inv.clientId)?.source === source;
+      return matchesQuery && matchesStatus && matchesSource;
     });
-  }, [invoices, query, status]);
+  }, [invoices, clients, query, status, source]);
 
   const { page, setPage, pageSize, setPageSize, pageItems, total: totalFiltered } = usePagination(filteredInvoices, 10);
-  const activeFilterCount = status !== "all" ? 1 : 0;
+  const activeFilterCount = (status !== "all" ? 1 : 0) + (source !== "all" ? 1 : 0);
   const hasActiveFilters = query.trim() !== "" || activeFilterCount > 0;
 
   function clearFilters() {
     setQuery("");
     setStatus("all");
+    setSource("all");
   }
 
   const totals = useMemo(() => {
@@ -410,7 +415,7 @@ export default function Financial() {
                     }}
                   >
                     <TabsList>
-                      <TabsTrigger value="unit">Unit</TabsTrigger>
+                      <TabsTrigger value="unit">Product</TabsTrigger>
                       <TabsTrigger value="service">Service</TabsTrigger>
                     </TabsList>
                     <TabsContent value="unit" className="pt-3">
@@ -419,7 +424,7 @@ export default function Financial() {
                         <Combobox
                           value={form.sourceId}
                           onChange={selectUnitSource}
-                          placeholder="Select unit / material"
+                          placeholder="Select product / material"
                           searchPlaceholder="Search by name or SKU..."
                           options={activeInventory.map((item) => ({ value: item.id, label: item.name, sublabel: item.sku }))}
                         />
@@ -578,6 +583,21 @@ export default function Financial() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Source</Label>
+                <Select value={source} onValueChange={(v) => setSource(v as typeof source)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sourceFilters.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s === "all" ? "All sources" : s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </FilterButton>
             {hasActiveFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="text-ink-500">
@@ -598,7 +618,7 @@ export default function Financial() {
                   const total = inv.items.reduce((s, i) => s + i.qty * i.unitPrice, 0);
                   const balance = total - inv.amountPaid;
                   const kinds = new Set(inv.items.map((i) => i.kind).filter(Boolean));
-                  const kindLabel = kinds.size > 1 ? "Unit + Service" : kinds.has("unit") ? "Unit" : kinds.has("service") ? "Service" : "—";
+                  const kindLabel = kinds.size > 1 ? "Product + Service" : kinds.has("unit") ? "Product" : kinds.has("service") ? "Service" : "—";
                   const itemSummary = inv.items.map((i) => i.description).join(", ");
                   const history = paymentHistoryFor(inv);
                   const expanded = expandedIds.has(inv.id);
@@ -665,7 +685,7 @@ export default function Financial() {
                   <TableRow>
                     <TableHead>Invoice #</TableHead>
                     <TableHead>Client</TableHead>
-                    <TableHead>Service/Unit</TableHead>
+                    <TableHead>Service/Product</TableHead>
                     <TableHead>Issued / Due</TableHead>
                     <TableHead>Total</TableHead>
                     <TableHead>Balance</TableHead>
@@ -678,7 +698,7 @@ export default function Financial() {
                     const total = inv.items.reduce((s, i) => s + i.qty * i.unitPrice, 0);
                     const balance = total - inv.amountPaid;
                     const kinds = new Set(inv.items.map((i) => i.kind).filter(Boolean));
-                    const kindLabel = kinds.size > 1 ? "Unit + Service" : kinds.has("unit") ? "Unit" : kinds.has("service") ? "Service" : "—";
+                    const kindLabel = kinds.size > 1 ? "Product + Service" : kinds.has("unit") ? "Product" : kinds.has("service") ? "Service" : "—";
                     const itemSummary = inv.items.map((i) => i.description).join(", ");
                     const history = paymentHistoryFor(inv);
                     const expanded = expandedIds.has(inv.id);

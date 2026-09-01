@@ -182,11 +182,11 @@ export default function Reports() {
           <Card>
             <CardHeader>
               <CardTitle>Top Products by Revenue</CardTitle>
-              <CardDescription>Best-selling unit products from recorded invoices</CardDescription>
+              <CardDescription>Best-selling products from recorded invoices</CardDescription>
             </CardHeader>
             <CardContent className="h-80 pt-2">
               {topProductsData.length === 0 ? (
-                <EmptyState icon={Package} title="No unit sales recorded yet" description="Invoice line items marked as a unit sale will appear here." />
+                <EmptyState icon={Package} title="No product sales recorded yet" description="Invoice line items marked as a product sale will appear here." />
               ) : (
                 <ResponsiveBar
                   data={topProductsData}
@@ -298,7 +298,7 @@ export default function Reports() {
                         <p className="font-mono-data text-xs text-ink-400">{r.sku}</p>
                       </div>
                     </div>
-                    <MobileListRow label="Units sold">{r.unitsSold}</MobileListRow>
+                    <MobileListRow label="Products sold">{r.unitsSold}</MobileListRow>
                     <MobileListRow label="Revenue">{formatCurrency(r.revenue)}</MobileListRow>
                   </MobileListCard>
                 ))}
@@ -308,7 +308,7 @@ export default function Reports() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Product</TableHead>
-                      <TableHead>Units Sold</TableHead>
+                      <TableHead>Products Sold</TableHead>
                       <TableHead>Revenue</TableHead>
                     </TableRow>
                   </TableHeader>

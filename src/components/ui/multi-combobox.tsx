@@ -7,17 +7,12 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
+import type { ComboboxOption } from "@/components/ui/combobox";
 
-export interface ComboboxOption {
-  value: string;
-  label: string;
-  sublabel?: string;
-}
-
-interface ComboboxProps {
+interface MultiComboboxProps {
   options: ComboboxOption[];
-  value: string;
-  onChange: (value: string) => void;
+  value: string[];
+  onChange: (values: string[]) => void;
   placeholder?: string;
   searchPlaceholder?: string;
   emptyText?: string;
@@ -25,41 +20,51 @@ interface ComboboxProps {
   className?: string;
 }
 
-interface OptionListProps {
+interface CheckOptionListProps {
   options: ComboboxOption[];
-  value: string;
+  value: string[];
   emptyText: string;
-  onSelect: (value: string) => void;
+  onToggle: (value: string) => void;
   className?: string;
   onWheel?: WheelEventHandler<HTMLDivElement>;
   onTouchMove?: TouchEventHandler<HTMLDivElement>;
 }
 
-function OptionList({ options, value, emptyText, onSelect, className, onWheel, onTouchMove }: OptionListProps) {
+function CheckOptionList({ options, value, emptyText, onToggle, className, onWheel, onTouchMove }: CheckOptionListProps) {
   if (options.length === 0) {
     return <p className="px-3 py-2 text-xs text-ink-400">{emptyText}</p>;
   }
   return (
     <div className={className} onWheel={onWheel} onTouchMove={onTouchMove}>
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => onSelect(o.value)}
-          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-brand-blue-50"
-        >
-          <Check className={cn("h-3.5 w-3.5 shrink-0 text-brand-blue-500", o.value === value ? "opacity-100" : "opacity-0")} />
-          <span className="flex flex-col">
-            <span className="text-ink-800">{o.label}</span>
-            {o.sublabel && <span className="text-xs text-ink-400">{o.sublabel}</span>}
-          </span>
-        </button>
-      ))}
+      {options.map((o) => {
+        const checked = value.includes(o.value);
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onToggle(o.value)}
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-brand-blue-50"
+          >
+            <span
+              className={cn(
+                "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                checked ? "border-brand-blue-500 bg-brand-blue-500" : "border-ink-200 bg-white"
+              )}
+            >
+              {checked && <Check className="h-3 w-3 text-white" />}
+            </span>
+            <span className="flex flex-col">
+              <span className="text-ink-800">{o.label}</span>
+              {o.sublabel && <span className="text-xs text-ink-400">{o.sublabel}</span>}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-export function Combobox({
+export function MultiCombobox({
   options,
   value,
   onChange,
@@ -68,22 +73,20 @@ export function Combobox({
   emptyText = "No results found.",
   disabled,
   className,
-}: ComboboxProps) {
+}: MultiComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 150);
   const isMobile = useIsMobile();
   const mobileInputRef = useRef<HTMLInputElement>(null);
 
-  // Defer focus by a tick so it wins the race against an ancestor Dialog's own
-  // open-focus pass, which would otherwise steal it back immediately.
   useEffect(() => {
     if (!isMobile || !open) return;
     const raf = requestAnimationFrame(() => mobileInputRef.current?.focus());
     return () => cancelAnimationFrame(raf);
   }, [isMobile, open]);
 
-  const selected = options.find((o) => o.value === value);
+  const selected = options.filter((o) => value.includes(o.value));
 
   const filtered = useMemo(() => {
     const q = debouncedQuery.trim().toLowerCase();
@@ -98,9 +101,12 @@ export function Combobox({
     setQuery("");
   }
 
-  function selectValue(v: string) {
-    onChange(v);
-    close();
+  function toggleValue(v: string) {
+    onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  }
+
+  function removeValue(v: string) {
+    onChange(value.filter((x) => x !== v));
   }
 
   const trigger = (
@@ -110,22 +116,38 @@ export function Combobox({
       onClick={isMobile ? () => setOpen(true) : undefined}
       className={cn(
         "flex h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-ink-100 bg-white px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-400 disabled:cursor-not-allowed disabled:opacity-50",
-        !selected && "text-ink-300",
+        selected.length === 0 && "text-ink-300",
         className
       )}
     >
-      <span className="truncate">{selected ? selected.label : placeholder}</span>
+      <span className="truncate">
+        {selected.length === 0 ? placeholder : selected.length === 1 ? selected[0].label : `${selected.length} selected`}
+      </span>
       <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
     </button>
   );
 
-  // Mobile: bypass Radix Popover's anchored-floating positioning entirely and portal a
-  // full-screen bottom sheet straight to document.body — small anchored popovers are
-  // cramped and hard to tap accurately on narrow viewports.
+  const chips = selected.length > 0 && (
+    <div className="flex flex-wrap gap-1.5 pt-1.5">
+      {selected.map((o) => (
+        <span
+          key={o.value}
+          className="flex items-center gap-1 rounded-full bg-brand-blue-50 px-2 py-0.5 text-xs text-brand-blue-700"
+        >
+          {o.label}
+          <button type="button" onClick={() => removeValue(o.value)} className="text-brand-blue-500 hover:text-brand-blue-700">
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+
   if (isMobile) {
     return (
-      <>
+      <div>
         {trigger}
+        {chips}
         {open &&
           createPortal(
             <div
@@ -149,56 +171,59 @@ export function Combobox({
                   <button
                     type="button"
                     onClick={close}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-400 hover:bg-ink-50"
+                    className="flex h-9 shrink-0 items-center justify-center rounded-md bg-brand-blue-500 px-3 text-sm font-medium text-white hover:bg-brand-blue-600"
                   >
-                    <X className="h-4 w-4" />
+                    Done
                   </button>
                 </div>
-                <OptionList
+                <CheckOptionList
                   options={filtered}
                   value={value}
                   emptyText={emptyText}
-                  onSelect={selectValue}
+                  onToggle={toggleValue}
                   className="overflow-y-auto p-1 pb-[max(0.25rem,env(safe-area-inset-bottom))]"
                 />
               </div>
             </div>,
             document.body
           )}
-      </>
+      </div>
     );
   }
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(o) => {
-        setOpen(o);
-        if (!o) setQuery("");
-      }}
-    >
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-        <div className="relative border-b border-ink-100 p-1.5">
-          <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-300" />
-          <Input
-            autoFocus
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={searchPlaceholder}
-            className="h-8 pl-8 text-sm"
+    <div>
+      <Popover
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) setQuery("");
+        }}
+      >
+        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+          <div className="relative border-b border-ink-100 p-1.5">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-300" />
+            <Input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={searchPlaceholder}
+              className="h-8 pl-8 text-sm"
+            />
+          </div>
+          <CheckOptionList
+            options={filtered}
+            value={value}
+            emptyText={emptyText}
+            onToggle={toggleValue}
+            className="max-h-56 overflow-y-auto p-1"
+            onWheel={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
           />
-        </div>
-        <OptionList
-          options={filtered}
-          value={value}
-          emptyText={emptyText}
-          onSelect={selectValue}
-          className="max-h-56 overflow-y-auto p-1"
-          onWheel={(e) => e.stopPropagation()}
-          onTouchMove={(e) => e.stopPropagation()}
-        />
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+      {chips}
+    </div>
   );
 }

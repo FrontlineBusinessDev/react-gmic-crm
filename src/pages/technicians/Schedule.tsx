@@ -44,6 +44,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
+import { MultiCombobox } from "@/components/ui/multi-combobox";
 import { FilterButton } from "@/components/shared/filter-button";
 import {
   Dialog,
@@ -69,7 +70,7 @@ import { useCrmStore } from "@/store/crmStore";
 import { useAuthStore } from "@/store/authStore";
 import { mockUsers } from "@/data/users";
 import { cn, initials } from "@/lib/utils";
-import type { JobStatus, JobType, ScheduleJob } from "@/types";
+import type { JobStatus, JobType, ScheduleJob, ServiceCatalogItem } from "@/types";
 
 const technicians = mockUsers.filter((u) => u.role === "technician");
 const SCHEDULE_CSV_HEADERS = ["title", "type", "date", "time", "technicianId", "clientId", "notes"];
@@ -115,6 +116,28 @@ const statusDot: Record<JobStatus, string> = {
 
 const MAX_PILLS_PER_DAY = 3;
 
+// Service Catalog names → JobType, so the job's type can be derived from the
+// selected service(s) instead of picked manually. "Installation" wins when
+// present since it drives the post-installation automation in the store.
+const SERVICE_NAME_TO_JOB_TYPE: Record<string, JobType> = {
+  Installation: "Installation",
+  Survey: "Survey",
+  "Cleaning (PMS)": "PMS Cleaning",
+  Repair: "Repair",
+  "Warranty Claim": "Warranty Service",
+};
+function deriveJobType(serviceIds: string[], serviceCatalog: ServiceCatalogItem[]): JobType {
+  const names = serviceIds
+    .map((id) => serviceCatalog.find((s) => s.id === id)?.name)
+    .filter((n): n is string => !!n);
+  if (names.includes("Installation")) return "Installation";
+  for (const name of names) {
+    const type = SERVICE_NAME_TO_JOB_TYPE[name];
+    if (type) return type;
+  }
+  return "Survey";
+}
+
 const legendItems: { color: string; label: string }[] = [
   { color: "bg-brand-cyan-500", label: "Scheduled" },
   { color: "bg-amber-500", label: "In Progress" },
@@ -127,6 +150,8 @@ export default function Schedule() {
     schedule,
     clients,
     serviceCatalog,
+    inventory,
+    inventoryCategories,
     addJob,
     updateJob,
     updateJobStatus,
@@ -138,6 +163,16 @@ export default function Schedule() {
   const activeServices = useMemo(
     () => serviceCatalog.filter((s) => (s.status ?? "active") === "active"),
     [serviceCatalog],
+  );
+  const materialItems = useMemo(
+    () =>
+      inventory.filter(
+        (i) =>
+          (i.status ?? "active") === "active" &&
+          !inventoryCategories.find((c) => c.name === i.category)?.tracksSerials &&
+          i.quantityOnHand > 0,
+      ),
+    [inventory, inventoryCategories],
   );
   const scheduleAuditEntries = useMemo(
     () => auditLog.filter((e) => e.module === "schedule"),
@@ -209,24 +244,23 @@ export default function Schedule() {
   const [dateScope, setDateScope] = useState<"all" | "today" | "week">("all");
 
   const UNASSIGNED = "unassigned";
-  const NO_UNIT = "no-unit";
   const emptyForm = {
-    serviceId: "",
-    type: "Survey" as JobType,
+    serviceIds: [] as string[],
     date: new Date().toISOString().slice(0, 10),
     time: "9:00 AM",
     technicianId: technicians[0]?.id ?? UNASSIGNED,
     clientId: "",
-    unitId: "",
+    unitIds: [] as string[],
+    materials: [] as { itemId: string; qty: number }[],
     notes: "",
   };
   const [form, setForm] = useState(emptyForm);
   const selectedClient = clients.find((c) => c.id === form.clientId);
-  const selectedUnit = selectedClient?.units.find((u) => u.id === form.unitId);
-  const selectedService = serviceCatalog.find((s) => s.id === form.serviceId);
+  const selectedUnits = selectedClient?.units.filter((u) => form.unitIds.includes(u.id)) ?? [];
+  const selectedServices = serviceCatalog.filter((s) => form.serviceIds.includes(s.id));
   const computedTitle =
-    selectedService && selectedClient
-      ? `${selectedService.name} — ${selectedClient.name}`
+    selectedServices.length > 0 && selectedClient
+      ? `${selectedServices.map((s) => s.name).join(" + ")} — ${selectedClient.name}`
       : "";
 
   const hasActiveFilters =
@@ -328,13 +362,13 @@ export default function Schedule() {
     );
     setEditingJobId(job.id);
     setForm({
-      serviceId: job.serviceId ?? matchedService?.id ?? "",
-      type: job.type,
+      serviceIds: job.serviceIds ?? (matchedService ? [matchedService.id] : []),
       date: job.date,
       time: job.time,
       technicianId: job.technicianId ?? UNASSIGNED,
       clientId: job.clientId ?? "",
-      unitId: job.unitId ?? "",
+      unitIds: job.unitIds ?? [],
+      materials: job.materials ?? [],
       notes: job.notes,
     });
     setActiveJob(null);
@@ -342,17 +376,18 @@ export default function Schedule() {
   }
 
   function handleReviewAdd() {
-    if (!selectedService || !selectedClient) return;
+    if (selectedServices.length === 0 || !selectedClient) return;
     setConfirmOpen(true);
   }
 
   function handleConfirmAdd() {
-    if (!selectedService || !selectedClient) return;
+    if (selectedServices.length === 0 || !selectedClient) return;
     const technicianId = form.technicianId === UNASSIGNED ? null : form.technicianId;
+    const type = deriveJobType(form.serviceIds, serviceCatalog);
     if (editingJobId) {
       updateJob(editingJobId, {
         title: computedTitle,
-        type: form.type,
+        type,
         status:
           schedule.find((j) => j.id === editingJobId)?.status ?? "scheduled",
         date: form.date,
@@ -361,14 +396,15 @@ export default function Schedule() {
         clientId: selectedClient.id,
         clientName: selectedClient.name,
         address: selectedClient.address,
-        unitId: selectedUnit?.id,
+        unitIds: selectedUnits.map((u) => u.id),
         notes: form.notes,
-        serviceId: selectedService.id,
+        serviceIds: form.serviceIds,
+        materials: form.materials,
       });
     } else {
       addJob({
         title: computedTitle,
-        type: form.type,
+        type,
         status: "scheduled",
         date: form.date,
         time: form.time,
@@ -376,9 +412,10 @@ export default function Schedule() {
         clientId: selectedClient.id,
         clientName: selectedClient.name,
         address: selectedClient.address,
-        unitId: selectedUnit?.id,
+        unitIds: selectedUnits.map((u) => u.id),
         notes: form.notes,
-        serviceId: selectedService.id,
+        serviceIds: form.serviceIds,
+        materials: form.materials,
       });
     }
     setForm(emptyForm);
@@ -432,116 +469,113 @@ export default function Schedule() {
                   <Label>Client</Label>
                   <Combobox
                     value={form.clientId}
-                    onChange={(v) => setForm({ ...form, clientId: v, unitId: "" })}
+                    onChange={(v) => setForm({ ...form, clientId: v, unitIds: [] })}
                     placeholder="Select client"
                     searchPlaceholder="Search by name, phone, or email..."
                     options={clients.map((c) => ({ value: c.id, label: c.name, sublabel: c.phone }))}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Unit</Label>
-                  <Select
-                    value={form.unitId || NO_UNIT}
-                    onValueChange={(v) =>
-                      setForm({ ...form, unitId: v === NO_UNIT ? "" : v })
-                    }
-                    disabled={!selectedClient}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select unit" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NO_UNIT}>No specific unit</SelectItem>
-                      {selectedClient?.units.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.model} · {u.location}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Products (optional)</Label>
+                  <MultiCombobox
+                    value={form.unitIds}
+                    onChange={(v) => setForm({ ...form, unitIds: v })}
+                    placeholder="No specific product"
+                    searchPlaceholder="Search products..."
+                    options={(selectedClient?.units ?? []).map((u) => ({
+                      value: u.id,
+                      label: u.model,
+                      sublabel: u.location,
+                    }))}
+                  />
                   {selectedClient && selectedClient.units.length === 0 && (
                     <p className="text-xs text-ink-500">
-                      This client has no units on record yet.
+                      This client has no products on record yet.
                     </p>
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Service</Label>
-                  <Select
-                    value={form.serviceId}
-                    onValueChange={(v) =>
-                      setForm({ ...form, serviceId: v })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select service" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {activeServices.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Services</Label>
+                  <MultiCombobox
+                    value={form.serviceIds}
+                    onChange={(v) => setForm({ ...form, serviceIds: v })}
+                    placeholder="Select services..."
+                    searchPlaceholder="Search services..."
+                    options={activeServices.map((s) => ({ value: s.id, label: s.name }))}
+                  />
                   {computedTitle && (
                     <p className="text-xs text-ink-500">
                       Calendar title: {computedTitle}
                     </p>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label>Type</Label>
-                    <Select
-                      value={form.type}
-                      onValueChange={(v) =>
-                        setForm({ ...form, type: v as JobType })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(
-                          [
-                            "Survey",
-                            "Installation",
-                            "PMS Cleaning",
-                            "Repair",
-                            "Warranty Service",
-                          ] as const
-                        ).map((t) => (
-                          <SelectItem key={t} value={t}>
-                            {t}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Technician</Label>
-                    <Select
-                      value={form.technicianId}
-                      onValueChange={(v) =>
-                        setForm({ ...form, technicianId: v })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {form.type === "Survey" && (
-                          <SelectItem value={UNASSIGNED}>Unassigned (open for any technician)</SelectItem>
-                        )}
-                        {technicians.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="space-y-1">
+                  <Label>Materials / spare parts (optional)</Label>
+                  <MultiCombobox
+                    options={materialItems.map((i) => ({
+                      value: i.id,
+                      label: i.name,
+                      sublabel: `${i.sku} · ${i.quantityOnHand} in stock`,
+                    }))}
+                    value={form.materials.map((m) => m.itemId)}
+                    onChange={(ids) =>
+                      setForm({
+                        ...form,
+                        materials: ids.map(
+                          (itemId) =>
+                            form.materials.find((m) => m.itemId === itemId) ?? { itemId, qty: 1 },
+                        ),
+                      })
+                    }
+                    placeholder="No materials"
+                    searchPlaceholder="Search materials..."
+                  />
+                  {form.materials.length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      {form.materials.map((m) => {
+                        const item = materialItems.find((i) => i.id === m.itemId);
+                        if (!item) return null;
+                        return (
+                          <div key={m.itemId} className="flex items-center justify-between gap-2 text-xs">
+                            <span className="truncate text-ink-600">{item.name}</span>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={item.quantityOnHand}
+                              step={1}
+                              value={m.qty}
+                              onChange={(e) => {
+                                const raw = Number(e.target.value) || 1;
+                                const qty = Math.min(Math.max(raw, 1), item.quantityOnHand);
+                                setForm({
+                                  ...form,
+                                  materials: form.materials.map((mm) =>
+                                    mm.itemId === m.itemId ? { ...mm, qty } : mm,
+                                  ),
+                                });
+                              }}
+                              className="h-7 w-16 text-xs"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Technician</Label>
+                  <Combobox
+                    value={form.technicianId}
+                    onChange={(v) => setForm({ ...form, technicianId: v })}
+                    placeholder="Select technician"
+                    searchPlaceholder="Search technicians..."
+                    options={[
+                      ...(selectedServices.some((s) => s.name === "Survey")
+                        ? [{ value: UNASSIGNED, label: "Unassigned (open for any technician)" }]
+                        : []),
+                      ...technicians.map((t) => ({ value: t.id, label: t.name })),
+                    ]}
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
@@ -990,10 +1024,6 @@ export default function Schedule() {
               </span>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="text-ink-500">Type</span>
-              <span className="text-right text-ink-700">{form.type}</span>
-            </div>
-            <div className="flex justify-between gap-3">
               <span className="text-ink-500">Client</span>
               <span className="text-right text-ink-700">
                 {selectedClient?.name}
@@ -1005,11 +1035,11 @@ export default function Schedule() {
                 {selectedClient?.address}
               </span>
             </div>
-            {selectedUnit && (
+            {selectedUnits.length > 0 && (
               <div className="flex justify-between gap-3">
-                <span className="text-ink-500">Unit</span>
+                <span className="text-ink-500">Products</span>
                 <span className="text-right text-ink-700">
-                  {selectedUnit.model} · {selectedUnit.location}
+                  {selectedUnits.map((u) => `${u.model} · ${u.location}`).join(", ")}
                 </span>
               </div>
             )}

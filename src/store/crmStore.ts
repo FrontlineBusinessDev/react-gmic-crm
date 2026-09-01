@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   Client,
+  ClientServiceRecord,
   Lead,
   ProjectStatus,
   InventoryItem,
@@ -46,11 +47,46 @@ import { mockReorderRequests } from "@/data/reorderRequests";
 import { mockAuditLog } from "@/data/auditLog";
 import { addMonthsIso } from "@/lib/utils";
 import { useNotificationStore } from "@/store/notificationStore";
+import { useToastStore } from "@/store/toastStore";
 
 let idCounter = 1000;
 function nextId(prefix: string) {
   idCounter += 1;
   return `${prefix}-${idCounter}`;
+}
+
+function resolveServiceRecords(serviceIds: string[] | undefined, serviceCatalog: ServiceCatalogItem[]): ClientServiceRecord[] {
+  if (!serviceIds?.length) return [];
+  const addedAt = new Date().toISOString().slice(0, 10);
+  return serviceIds
+    .map((serviceId) => serviceCatalog.find((s) => s.id === serviceId))
+    .filter((item): item is ServiceCatalogItem => !!item)
+    .map((item) => ({
+      id: nextId("csv"),
+      serviceId: item.id,
+      serviceName: item.name,
+      addedAt,
+      addedBy: "You",
+    }));
+}
+
+function deductMaterialsForProducts(
+  entries: { model: string; materials: { itemId: string; qty: number }[] }[],
+  get: () => CrmState
+) {
+  for (const { model, materials } of entries) {
+    const names: string[] = [];
+    for (const { itemId, qty } of materials) {
+      const item = get().inventory.find((i) => i.id === itemId);
+      if (!item) continue;
+      get().deductInventory(itemId, qty);
+      names.push(`${item.name} ×${qty}`);
+    }
+    if (names.length > 0) {
+      get().logActivity({ type: "note", message: `${names.join(", ")} deducted for ${model}`, actor: "You" });
+      useToastStore.getState().addToast({ variant: "success", message: `${names.length} material(s) deducted for ${model}.` });
+    }
+  }
 }
 
 function computeFieldDiff<T extends object>(
@@ -130,15 +166,21 @@ interface CrmState {
 
   // Clients / Units
   addClient: (
-    client: Omit<Client, "id" | "createdAt" | "units" | "balance" | "totalBilled" | "totalPaid" | "projectStatus"> & {
-      units?: Omit<Unit, "id" | "serviceHistory">[];
+    client: Omit<Client, "id" | "createdAt" | "units" | "balance" | "totalBilled" | "totalPaid" | "projectStatus" | "services"> & {
+      units?: (Omit<Unit, "id" | "serviceHistory" | "services"> & {
+        serviceIds?: string[];
+        materials?: { itemId: string; qty: number }[];
+      })[];
+      projectStatus?: ProjectStatus;
     }
   ) => string;
   updateClient: (id: string, updates: Partial<Omit<Client, "id">>) => void;
   updateClientProjectStatus: (id: string, status: ProjectStatus) => void;
+  addClientService: (clientId: string, service: { serviceId: string; notes?: string }) => void;
   archiveClient: (id: string) => void;
   restoreClient: (id: string) => void;
-  addUnitToClient: (clientId: string, unit: Omit<Unit, "id" | "serviceHistory">) => void;
+  addUnitToClient: (clientId: string, unit: Omit<Unit, "id" | "serviceHistory" | "services">, serviceIds?: string[]) => void;
+  addServicesToUnit: (clientId: string, unitId: string, serviceIds: string[]) => void;
   addServiceRecordToUnit: (
     clientId: string,
     unitId: string,
@@ -331,6 +373,11 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       message: `New lead created: ${lead.clientName} via ${lead.source}`,
       actor: "You",
     });
+    useToastStore.getState().addToast({ variant: "success", message: `Lead "${lead.clientName}" created.` });
+    const materialsToDeduct = (lead.productInterests ?? [])
+      .filter((p) => p.materials?.length)
+      .map((p) => ({ model: p.productLabel, materials: p.materials! }));
+    deductMaterialsForProducts(materialsToDeduct, get);
   },
 
   moveLeadStage: (leadId, stage, lostReason) => {
@@ -350,6 +397,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         message: `${lead.clientName} moved to "${label}"`,
         actor: "You",
       });
+      useToastStore.getState().addToast({ variant: "success", message: `${lead.clientName} moved to "${label}".` });
     }
   },
 
@@ -405,6 +453,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       message: `${lead.clientName} converted from lead to client`,
       actor: "You",
     });
+    useToastStore.getState().addToast({ variant: "success", message: `${lead.clientName} converted to a client.` });
     return newClientId;
   },
 
@@ -412,18 +461,30 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     const { units: unitDrafts, ...clientData } = client;
     const id = nextId("c");
     const wonStageId = get().pipelineStages.find((s) => s.kind === "won")?.id ?? "Project Won";
+    const serviceCatalog = get().serviceCatalog;
+    const materialsToDeduct: { model: string; materials: { itemId: string; qty: number }[] }[] = [];
     const newClient: Client = {
       ...clientData,
       id,
       createdAt: new Date().toISOString().slice(0, 10),
-      units: (unitDrafts ?? []).map((unit) => ({ ...unit, id: nextId("un"), serviceHistory: [] })),
+      units: (unitDrafts ?? []).map(({ serviceIds, materials, ...unit }) => {
+        if (materials?.length) materialsToDeduct.push({ model: unit.model, materials });
+        return {
+          ...unit,
+          id: nextId("un"),
+          serviceHistory: [],
+          services: resolveServiceRecords(serviceIds, serviceCatalog),
+        };
+      }),
       balance: 0,
       totalBilled: 0,
       totalPaid: 0,
-      projectStatus: wonStageId,
+      projectStatus: client.projectStatus ?? wonStageId,
     };
     set((s) => ({ clients: [newClient, ...s.clients] }));
     get().logAudit({ module: "client", entityId: id, entityLabel: newClient.name, action: "create", changes: [], actor: "You" });
+    useToastStore.getState().addToast({ variant: "success", message: `Client "${newClient.name}" created.` });
+    deductMaterialsForProducts(materialsToDeduct, get);
     return id;
   },
 
@@ -439,6 +500,26 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     }
   },
 
+  addClientService: (clientId, service) => {
+    const client = get().clients.find((c) => c.id === clientId);
+    const catalogItem = get().serviceCatalog.find((s) => s.id === service.serviceId);
+    if (!client || !catalogItem) return;
+    const record: ClientServiceRecord = {
+      id: nextId("csv"),
+      serviceId: service.serviceId,
+      serviceName: catalogItem.name,
+      notes: service.notes,
+      addedAt: new Date().toISOString().slice(0, 10),
+      addedBy: "You",
+    };
+    set((s) => ({
+      clients: s.clients.map((c) => (c.id === clientId ? { ...c, services: [...(c.services ?? []), record] } : c)),
+    }));
+    get().logActivity({ type: "service", message: `${catalogItem.name} logged for ${client.name}`, actor: "You" });
+    get().logAudit({ module: "client", entityId: clientId, entityLabel: client.name, action: "update", changes: [{ field: "services", oldValue: "", newValue: catalogItem.name }], actor: "You" });
+    useToastStore.getState().addToast({ variant: "success", message: `${catalogItem.name} logged for ${client.name}.` });
+  },
+
   updateClient: (id, updates) => {
     const before = get().clients.find((c) => c.id === id);
     set((s) => ({ clients: s.clients.map((c) => (c.id === id ? { ...c, ...updates } : c)) }));
@@ -446,6 +527,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     if (before && after) {
       const changes = computeFieldDiff(before, after, ["name", "company", "phone", "email", "address", "status"]);
       get().logAudit({ module: "client", entityId: id, entityLabel: after.name, action: "update", changes, actor: "You" });
+      useToastStore.getState().addToast({ variant: "success", message: `Client "${after.name}" updated.` });
     }
   },
 
@@ -454,6 +536,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     if (!client) return;
     set((s) => ({ clients: s.clients.map((c) => (c.id === id ? { ...c, status: "archived" } : c)) }));
     get().logAudit({ module: "client", entityId: id, entityLabel: client.name, action: "archive", changes: [], actor: "You" });
+    useToastStore.getState().addToast({ variant: "success", message: `Client "${client.name}" archived.` });
   },
 
   restoreClient: (id) => {
@@ -461,18 +544,54 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     if (!client) return;
     set((s) => ({ clients: s.clients.map((c) => (c.id === id ? { ...c, status: "active" } : c)) }));
     get().logAudit({ module: "client", entityId: id, entityLabel: client.name, action: "restore", changes: [], actor: "You" });
+    useToastStore.getState().addToast({ variant: "success", message: `Client "${client.name}" restored.` });
   },
 
-  addUnitToClient: (clientId, unit) => {
-    const newUnit: Unit = { ...unit, id: nextId("un"), serviceHistory: [] };
+  addUnitToClient: (clientId, unit, serviceIds) => {
+    const newUnit: Unit = {
+      ...unit,
+      id: nextId("un"),
+      serviceHistory: [],
+      services: resolveServiceRecords(serviceIds, get().serviceCatalog),
+    };
     set((s) => ({
       clients: s.clients.map((c) => (c.id === clientId ? { ...c, units: [...c.units, newUnit] } : c)),
     }));
     get().logActivity({
       type: "install",
-      message: `Unit ${newUnit.model} (SKU ${newUnit.sku}) added to client record`,
+      message: `Product ${newUnit.model} (SKU ${newUnit.sku}) added to client record`,
       actor: "You",
     });
+    useToastStore.getState().addToast({ variant: "success", message: `Product "${newUnit.model}" added.` });
+  },
+
+  addServicesToUnit: (clientId, unitId, serviceIds) => {
+    const client = get().clients.find((c) => c.id === clientId);
+    const unit = client?.units.find((u) => u.id === unitId);
+    if (!client || !unit) return;
+    const newRecords = resolveServiceRecords(serviceIds, get().serviceCatalog);
+    if (newRecords.length === 0) return;
+    set((s) => ({
+      clients: s.clients.map((c) =>
+        c.id === clientId
+          ? { ...c, units: c.units.map((u) => (u.id === unitId ? { ...u, services: [...(u.services ?? []), ...newRecords] } : u)) }
+          : c
+      ),
+    }));
+    get().logActivity({
+      type: "service",
+      message: `${newRecords.map((r) => r.serviceName).join(", ")} logged for ${unit.model}`,
+      actor: "You",
+    });
+    get().logAudit({
+      module: "client",
+      entityId: clientId,
+      entityLabel: client.name,
+      action: "update",
+      changes: [{ field: "unit services", oldValue: "", newValue: newRecords.map((r) => r.serviceName).join(", ") }],
+      actor: "You",
+    });
+    useToastStore.getState().addToast({ variant: "success", message: `${newRecords.length} service(s) logged for ${unit.model}.` });
   },
 
   addServiceRecordToUnit: (clientId, unitId, record) => {
@@ -548,6 +667,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     const newItem: InventoryItem = { ...item, id, status: item.status ?? "active" };
     set((s) => ({ inventory: [newItem, ...s.inventory] }));
     get().logAudit({ module: "inventory", entityId: id, entityLabel: newItem.name, action: "create", changes: [], actor: "You" });
+    useToastStore.getState().addToast({ variant: "success", message: `Inventory item "${newItem.name}" added.` });
   },
 
   updateInventoryItem: (id, updates) => {
@@ -557,6 +677,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     if (before && after) {
       const changes = computeFieldDiff(before, after, ["name", "sku", "category", "quantityOnHand", "reorderLevel", "unitCost", "unitPrice", "supplier", "status"]);
       get().logAudit({ module: "inventory", entityId: id, entityLabel: after.name, action: "update", changes, actor: "You" });
+      useToastStore.getState().addToast({ variant: "success", message: `Inventory item "${after.name}" updated.` });
     }
   },
 
@@ -565,6 +686,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     if (!item) return;
     set((s) => ({ inventory: s.inventory.map((i) => (i.id === id ? { ...i, status: "archived" } : i)) }));
     get().logAudit({ module: "inventory", entityId: id, entityLabel: item.name, action: "archive", changes: [], actor: "You" });
+    useToastStore.getState().addToast({ variant: "success", message: `Inventory item "${item.name}" archived.` });
   },
 
   restoreInventoryItem: (id) => {
@@ -572,6 +694,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     if (!item) return;
     set((s) => ({ inventory: s.inventory.map((i) => (i.id === id ? { ...i, status: "active" } : i)) }));
     get().logAudit({ module: "inventory", entityId: id, entityLabel: item.name, action: "restore", changes: [], actor: "You" });
+    useToastStore.getState().addToast({ variant: "success", message: `Inventory item "${item.name}" restored.` });
   },
 
   // Decrements BOM-linked materials whenever `quantitySold` units of `inventoryItemId`
@@ -622,9 +745,13 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     const category = get().inventoryCategories.find((c) => c.id === id);
     if (!category) return false;
     const inUse = get().inventory.some((i) => i.category === category.name && i.status !== "archived");
-    if (inUse) return false;
+    if (inUse) {
+      useToastStore.getState().addToast({ variant: "error", message: `Can't archive "${category.name}" — still in use by active inventory items.` });
+      return false;
+    }
     set((s) => ({ inventoryCategories: s.inventoryCategories.map((c) => (c.id === id ? { ...c, status: "archived" } : c)) }));
     get().logAudit({ module: "inventoryCategory", entityId: id, entityLabel: category.name, action: "archive", changes: [], actor: "You" });
+    useToastStore.getState().addToast({ variant: "success", message: `Category "${category.name}" archived.` });
     return true;
   },
 
@@ -733,6 +860,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       });
     }
     get().logAudit({ module: "purchaseBatch", entityId: id, entityLabel: batch.batchNumber, action: "update", changes: [{ field: "status", oldValue: "open", newValue: "received" }], actor: "You" });
+    useToastStore.getState().addToast({ variant: "success", message: `Batch "${batch.batchNumber}" received — stock updated.` });
 
     // Any reorder requests bundled into this batch are now fulfilled.
     const linkedRequests = get().reorderRequests.filter((r) => r.batchId === id);
@@ -1093,6 +1221,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     set((s) => ({ schedule: [{ ...job, id }, ...s.schedule] }));
     get().logActivity({ type: "note", message: `Job scheduled: ${job.title}`, actor: "You" });
     get().logAudit({ module: "schedule", entityId: id, entityLabel: job.title, action: "create", changes: [], actor: "You" });
+    useToastStore.getState().addToast({ variant: "success", message: `Job "${job.title}" scheduled.` });
   },
 
   updateJob: (jobId, updates) => {
@@ -1133,6 +1262,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       targetRoles: ["technician"],
       userId: after.technicianId ?? undefined,
     });
+    useToastStore.getState().addToast({ variant: "success", message: `Job "${after.title}" updated.` });
   },
 
   updateJobStatus: (jobId, status, cancellationReason) => {
@@ -1157,6 +1287,21 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     });
     const changes = before ? computeFieldDiff(before, job, ["status"]) : [];
     get().logAudit({ module: "schedule", entityId: jobId, entityLabel: job.title, action: "update", changes, actor: "You" });
+    useToastStore.getState().addToast({
+      variant: status === "cancelled" ? "error" : "success",
+      message:
+        status === "cancelled"
+          ? `${job.title} cancelled${cancellationReason ? ` — ${cancellationReason}` : ""}.`
+          : `${job.title} marked as ${status.replace("_", " ")}.`,
+    });
+
+    // Materials attached to a job are only consumed once the work is actually
+    // done — deduct on the transition into a done state, not at scheduling time.
+    const wasDone = before?.status === "installed" || before?.status === "completed";
+    const isDone = status === "installed" || status === "completed";
+    if (!wasDone && isDone && job.materials?.length) {
+      deductMaterialsForProducts([{ model: job.title, materials: job.materials }], get);
+    }
 
     // Post-installation automation: an Installation job marked Installed triggers
     // financial, warranty start, and the next PMS visit in one connected flow.
@@ -1183,6 +1328,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         status: "unpaid",
       });
       const invoiceNumber = get().invoices[0]?.invoiceNumber ?? "";
+      const pmsServiceId = get().serviceCatalog.find((s) => s.name === "Cleaning (PMS)")?.id;
 
       get().addJob({
         title: `PMS Cleaning — ${job.clientName}`,
@@ -1194,7 +1340,8 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         clientId: job.clientId,
         clientName: job.clientName,
         address: job.address,
-        unitId: job.unitId,
+        unitIds: job.unitIds,
+        serviceIds: pmsServiceId ? [pmsServiceId] : undefined,
         notes: "Auto-scheduled 3-month PMS follow-up after installation.",
       });
 
@@ -1286,6 +1433,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     }
     get().logActivity({ type: "note", message: `Invoice ${num} created for ${invoice.clientName}`, actor: "You" });
     get().logAudit({ module: "invoice", entityId: id, entityLabel: num, action: "create", changes: [], actor: "You" });
+    useToastStore.getState().addToast({ variant: "success", message: `Invoice ${num} created for ${invoice.clientName}.` });
   },
 
   setInvoiceNumberFormat: (format) => {
@@ -1333,6 +1481,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         message: `Payment of ₱${amount.toLocaleString()} recorded for ${inv.clientName}`,
         actor: "You",
       });
+      useToastStore.getState().addToast({ variant: "success", message: `Payment of ₱${amount.toLocaleString()} recorded for ${inv.clientName}.` });
       const updatedInv = get().invoices.find((i) => i.id === invoiceId);
       get().logAudit({
         module: "invoice",

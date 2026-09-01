@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
+import { MultiCombobox } from "@/components/ui/multi-combobox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/mobile-list";
@@ -30,17 +31,61 @@ import {
 import { useCrmStore } from "@/store/crmStore";
 import { SurveyPhotoGrid } from "@/components/shared/survey-photos";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
-import type { Client, Lead, ProjectStatus } from "@/types";
+import type { Client, InventoryItem, Lead, LeadProductInterest, ProjectStatus } from "@/types";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 const sources: (Lead["source"] | "all")[] = ["all", "Facebook Messenger", "Referral", "Walk-in", "Website", "Phone Call"];
 // Sized to show exactly 4 lead cards (128px each, 8px gap) before scrolling.
 const KANBAN_COLUMN_HEIGHT = "max-h-[536px]";
 
+// A product-interest row in the Add Lead dialog — `productKey` is either
+// "existing:<unitId>" (one of the selected client's already-owned products) or
+// "catalog:<inventoryItemId>" (a brand-new product picked from the Product catalog).
+interface ProductDraft {
+  key: string;
+  productKey: string;
+  serviceIds: string[];
+  materials: { itemId: string; qty: number }[];
+}
+function emptyProductDraft(): ProductDraft {
+  return {
+    key: `p-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    productKey: "",
+    serviceIds: [],
+    materials: [],
+  };
+}
+function buildProductInterests(
+  drafts: ProductDraft[],
+  selectedClient: Client | null,
+  productCatalogItems: InventoryItem[]
+): LeadProductInterest[] {
+  return drafts
+    .filter((d) => d.productKey && d.serviceIds.length > 0)
+    .map((d) => {
+      const [kind, refId] = d.productKey.split(":");
+      if (kind === "existing") {
+        const unit = selectedClient?.units.find((u) => u.id === refId);
+        return {
+          id: d.key,
+          unitId: refId,
+          productLabel: unit?.model ?? "Product",
+          serviceIds: d.serviceIds,
+          materials: d.materials,
+        };
+      }
+      const item = productCatalogItems.find((i) => i.id === refId);
+      return { id: d.key, productLabel: item?.name ?? "Product", serviceIds: d.serviceIds, materials: d.materials };
+    });
+}
+
 export default function LeadsPipeline() {
   const {
     leads,
     clients,
+    inventory,
+    inventoryCategories,
+    serviceCatalog,
     addLead,
     moveLeadStage,
     convertLeadToClient,
@@ -59,6 +104,38 @@ export default function LeadsPipeline() {
         .sort((a, b) => a.order - b.order)
         .map((s) => ({ key: s.id, label: s.label, accent: s.accent, kind: s.kind })),
     [pipelineStages]
+  );
+  const firstLeadStageId = stages.find((s) => s.kind === "lead")?.key ?? "Inquiry";
+  // First two lead-kind stages by order (e.g. Inquiry, Site Visit) don't require a
+  // product/services commitment yet — everything past that (Quotation onwards, plus
+  // Won/Lost) does.
+  const exemptStageKeys = useMemo(
+    () => new Set(stages.filter((s) => s.kind === "lead").slice(0, 2).map((s) => s.key)),
+    [stages]
+  );
+  const activeServiceCatalog = useMemo(
+    () => serviceCatalog.filter((s) => (s.status ?? "active") === "active"),
+    [serviceCatalog]
+  );
+  const productCatalogItems = useMemo(
+    () =>
+      inventory.filter(
+        (i) =>
+          (i.status ?? "active") === "active" &&
+          inventoryCategories.find((c) => c.name === i.category)?.tracksSerials &&
+          i.serializedUnits?.some((su) => su.status === "in_stock")
+      ),
+    [inventory, inventoryCategories]
+  );
+  const materialItems = useMemo(
+    () =>
+      inventory.filter(
+        (i) =>
+          (i.status ?? "active") === "active" &&
+          !inventoryCategories.find((c) => c.name === i.category)?.tracksSerials &&
+          i.quantityOnHand > 0
+      ),
+    [inventory, inventoryCategories]
   );
   const stageFilters = useMemo(() => ["all" as const, ...stages.map((s) => s.key)], [stages]);
   const wonStageId = useMemo(() => pipelineStages.find((s) => s.kind === "won")?.id, [pipelineStages]);
@@ -106,18 +183,13 @@ export default function LeadsPipeline() {
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
   const [dragOverStage, setDragOverStage] = useState<ProjectStatus | null>(null);
-  const [pendingAction, setPendingAction] = useState<
-    | { kind: "move"; lead: Lead; toStage: ProjectStatus; toLabel: string }
-    | { kind: "lost"; lead: Lead }
-    | { kind: "convert"; lead: Lead }
-    | null
-  >(null);
   const emptyLeadForm = {
     clientName: "",
     phone: "",
     email: "",
     address: "",
     source: "Facebook Messenger" as Lead["source"],
+    stage: firstLeadStageId as ProjectStatus,
     interestedUnit: "",
     estimatedValue: "",
     notes: "",
@@ -125,16 +197,50 @@ export default function LeadsPipeline() {
   const [form, setForm] = useState(emptyLeadForm);
   const [leadType, setLeadType] = useState<"new" | "existing">("new");
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [productDrafts, setProductDrafts] = useState<ProductDraft[]>([]);
+
+  const selectedClient = useMemo(() => clients.find((c) => c.id === selectedClientId) ?? null, [clients, selectedClientId]);
+  const productOptions = useMemo(
+    () => [
+      ...(selectedClient?.units.map((u) => ({
+        value: `existing:${u.id}`,
+        label: u.model,
+        sublabel: `Owned · ${u.brand ? `${u.brand} · ` : ""}${u.sku}`,
+      })) ?? []),
+      ...productCatalogItems.map((i) => ({
+        value: `catalog:${i.id}`,
+        label: i.name,
+        sublabel: i.brand ? `${i.brand} · Available` : "Available",
+      })),
+    ],
+    [selectedClient, productCatalogItems]
+  );
+  const requiresProduct = !exemptStageKeys.has(form.stage);
+  const validProductInterests = useMemo(
+    () => buildProductInterests(productDrafts, selectedClient, productCatalogItems),
+    [productDrafts, selectedClient, productCatalogItems]
+  );
 
   function resetLeadForm() {
     setForm(emptyLeadForm);
     setLeadType("new");
     setSelectedClientId(null);
+    setProductDrafts([]);
   }
 
   function selectExistingClient(client: Client) {
     setSelectedClientId(client.id);
     setForm({ ...form, clientName: client.name, phone: client.phone, email: client.email, address: client.address });
+  }
+
+  function addProductDraft() {
+    setProductDrafts((d) => [...d, emptyProductDraft()]);
+  }
+  function removeProductDraft(key: string) {
+    setProductDrafts((d) => d.filter((p) => p.key !== key));
+  }
+  function updateProductDraft(key: string, updates: Partial<ProductDraft>) {
+    setProductDrafts((d) => d.map((p) => (p.key === key ? { ...p, ...updates } : p)));
   }
 
   const filteredLeads = useMemo(() => {
@@ -163,10 +269,9 @@ export default function LeadsPipeline() {
     setSortOrder("newest");
   }
 
-  const firstLeadStageId = stages.find((s) => s.kind === "lead")?.key ?? "Inquiry";
-
   function handleAdd() {
     if (!form.clientName || !form.phone) return;
+    if (requiresProduct && validProductInterests.length === 0) return;
     addLead({
       clientName: form.clientName,
       phone: form.phone,
@@ -175,9 +280,10 @@ export default function LeadsPipeline() {
       source: form.source,
       interestedUnit: form.interestedUnit,
       estimatedValue: Number(form.estimatedValue) || 0,
-      stage: firstLeadStageId,
+      stage: form.stage,
       assignedTo: "u-admin",
       notes: form.notes,
+      productInterests: validProductInterests.length > 0 ? validProductInterests : undefined,
     });
     resetLeadForm();
     setAddOpen(false);
@@ -187,20 +293,6 @@ export default function LeadsPipeline() {
     const newClientId = convertLeadToClient(lead.id);
     setDetailLead(null);
     if (newClientId) navigate(`/clients/${newClientId}`);
-  }
-
-  function runPendingAction() {
-    if (!pendingAction) return;
-    if (pendingAction.kind === "move") {
-      moveLeadStage(pendingAction.lead.id, pendingAction.toStage);
-      if (detailLead?.id === pendingAction.lead.id) setDetailLead({ ...detailLead, stage: pendingAction.toStage });
-    } else if (pendingAction.kind === "lost") {
-      if (lostStageId) moveLeadStage(pendingAction.lead.id, lostStageId, "Marked lost from pipeline");
-      setDetailLead(null);
-    } else if (pendingAction.kind === "convert") {
-      handleConvert(pendingAction.lead);
-    }
-    setPendingAction(null);
   }
 
   return (
@@ -301,9 +393,122 @@ export default function LeadsPipeline() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Interested unit / needs</Label>
+                  <Label>Stage</Label>
+                  <Select value={form.stage} onValueChange={(v) => setForm({ ...form, stage: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {stages.filter((s) => s.kind !== "client").map((s) => (
+                        <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Interested product / needs</Label>
                   <Input value={form.interestedUnit} onChange={(e) => setForm({ ...form, interestedUnit: e.target.value })} placeholder="e.g. 2HP Split Type" />
                 </div>
+                {requiresProduct && (
+                  <div className="space-y-2 rounded-lg border border-ink-100 p-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Product(s) & services to avail</Label>
+                      <Button type="button" size="sm" variant="outline" onClick={addProductDraft}>
+                        <Plus className="h-3.5 w-3.5" /> Add product
+                      </Button>
+                    </div>
+                    <p className="text-xs text-ink-500">
+                      Required from {stages.find((s) => s.kind === "lead" && !exemptStageKeys.has(s.key))?.label ?? "Quotation"} onwards.
+                    </p>
+                    {productDrafts.length === 0 && (
+                      <p className="text-xs text-brand-crimson-600">Add at least one product to continue.</p>
+                    )}
+                    {productDrafts.map((draft) => (
+                      <div key={draft.key} className="space-y-2 rounded-lg bg-ink-50 p-2.5">
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1 space-y-1">
+                            <Label className="text-xs">Product</Label>
+                            <Combobox
+                              value={draft.productKey}
+                              onChange={(v) => updateProductDraft(draft.key, { productKey: v })}
+                              options={productOptions}
+                              placeholder="Select an owned or available product..."
+                              searchPlaceholder="Search products..."
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="mt-5 shrink-0 text-ink-400"
+                            onClick={() => removeProductDraft(draft.key)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Materials / spare parts (optional)</Label>
+                          <MultiCombobox
+                            options={materialItems.map((i) => ({
+                              value: i.id,
+                              label: i.name,
+                              sublabel: `${i.sku} · ${i.quantityOnHand} in stock`,
+                            }))}
+                            value={draft.materials.map((m) => m.itemId)}
+                            onChange={(ids) =>
+                              updateProductDraft(draft.key, {
+                                materials: ids.map(
+                                  (itemId) =>
+                                    draft.materials.find((m) => m.itemId === itemId) ?? { itemId, qty: 1 }
+                                ),
+                              })
+                            }
+                            placeholder="No materials"
+                            searchPlaceholder="Search materials..."
+                          />
+                          {draft.materials.length > 0 && (
+                            <div className="space-y-1 pt-1">
+                              {draft.materials.map((m) => {
+                                const item = materialItems.find((i) => i.id === m.itemId);
+                                if (!item) return null;
+                                return (
+                                  <div key={m.itemId} className="flex items-center justify-between gap-2 text-xs">
+                                    <span className="truncate text-ink-600">{item.name}</span>
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      max={item.quantityOnHand}
+                                      step={1}
+                                      value={m.qty}
+                                      onChange={(e) => {
+                                        const raw = Number(e.target.value) || 1;
+                                        const qty = Math.min(Math.max(raw, 1), item.quantityOnHand);
+                                        updateProductDraft(draft.key, {
+                                          materials: draft.materials.map((mm) =>
+                                            mm.itemId === m.itemId ? { ...mm, qty } : mm
+                                          ),
+                                        });
+                                      }}
+                                      className="h-7 w-16 text-xs"
+                                    />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Services</Label>
+                          <MultiCombobox
+                            value={draft.serviceIds}
+                            onChange={(v) => updateProductDraft(draft.key, { serviceIds: v })}
+                            options={activeServiceCatalog.map((s) => ({ value: s.id, label: s.name, sublabel: s.description }))}
+                            placeholder="Select services..."
+                            searchPlaceholder="Search services..."
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <Label>Notes</Label>
                   <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -314,7 +519,7 @@ export default function LeadsPipeline() {
                 <Button
                   variant="brand"
                   onClick={handleAdd}
-                  disabled={leadType === "existing" && !selectedClientId}
+                  disabled={(leadType === "existing" && !selectedClientId) || (requiresProduct && validProductInterests.length === 0)}
                 >
                   Create Lead
                 </Button>
@@ -335,7 +540,7 @@ export default function LeadsPipeline() {
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
             <div className="relative max-w-sm flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by client or unit..." className="pl-9" />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by client or product..." className="pl-9" />
             </div>
             <FilterButton activeCount={activeFilterCount} onClear={clearFilters}>
               <div className="space-y-1.5">
@@ -413,9 +618,9 @@ export default function LeadsPipeline() {
                       setDraggedLead(null);
                       return;
                     }
-                    if (stage.kind === "won") setPendingAction({ kind: "convert", lead: draggedLead });
-                    else if (stage.kind === "lost") setPendingAction({ kind: "lost", lead: draggedLead });
-                    else setPendingAction({ kind: "move", lead: draggedLead, toStage: stage.key, toLabel: stage.label });
+                    if (stage.kind === "won") handleConvert(draggedLead);
+                    else if (stage.kind === "lost") moveLeadStage(draggedLead.id, stage.key, "Marked lost from pipeline");
+                    else moveLeadStage(draggedLead.id, stage.key);
                     setDraggedLead(null);
                   }}
                 >
@@ -615,52 +820,29 @@ export default function LeadsPipeline() {
                           key={s.key}
                           variant="outline"
                           size="sm"
-                          onClick={() => setPendingAction({ kind: "move", lead: detailLead, toStage: s.key, toLabel: s.label })}
+                          onClick={() => {
+                            moveLeadStage(detailLead.id, s.key);
+                            setDetailLead({ ...detailLead, stage: s.key });
+                          }}
                         >
                           Move to {s.label} <ArrowRight className="h-3.5 w-3.5" />
                         </Button>
                       ))}
-                    <Button variant="destructive" size="sm" onClick={() => setPendingAction({ kind: "lost", lead: detailLead })}>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        if (lostStageId) moveLeadStage(detailLead.id, lostStageId, "Marked lost from pipeline");
+                        setDetailLead(null);
+                      }}
+                    >
                       Mark Lost
                     </Button>
-                    <Button variant="brand" size="sm" onClick={() => setPendingAction({ kind: "convert", lead: detailLead })}>
+                    <Button variant="brand" size="sm" onClick={() => handleConvert(detailLead)}>
                       <UserCheck className="h-3.5 w-3.5" /> Mark Won & Convert
                     </Button>
                   </>
                 )}
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!pendingAction} onOpenChange={(o) => !o && setPendingAction(null)}>
-        <DialogContent className="max-w-sm">
-          {pendingAction && (
-            <>
-              <DialogHeader>
-                <DialogTitle>
-                  {pendingAction.kind === "move" && `Move ${pendingAction.lead.clientName}?`}
-                  {pendingAction.kind === "lost" && `Mark ${pendingAction.lead.clientName} as lost?`}
-                  {pendingAction.kind === "convert" && `Mark ${pendingAction.lead.clientName} as won?`}
-                </DialogTitle>
-                <DialogDescription>
-                  {pendingAction.kind === "move" &&
-                    `This will move the lead from "${stages.find((s) => s.key === pendingAction.lead.stage)?.label}" to "${pendingAction.toLabel}".`}
-                  {pendingAction.kind === "lost" && "This lead will be marked as lost and removed from active follow-up."}
-                  {pendingAction.kind === "convert" && "This will convert the lead into a client record and open their client profile."}
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setPendingAction(null)}>Cancel</Button>
-                <Button
-                  variant={pendingAction.kind === "lost" ? "destructive" : "brand"}
-                  onClick={runPendingAction}
-                >
-                  {pendingAction.kind === "move" && "Move Lead"}
-                  {pendingAction.kind === "lost" && "Mark Lost"}
-                  {pendingAction.kind === "convert" && "Confirm & Convert"}
-                </Button>
               </DialogFooter>
             </>
           )}

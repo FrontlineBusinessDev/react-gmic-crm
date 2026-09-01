@@ -60,7 +60,7 @@ export default function Dashboard() {
         <StatCard label="Active Clients" value={String(clients.filter((c) => c.status === "active").length)} icon={Users} accent="blue" delay={0} />
         <StatCard label="Active Leads" value={String(stats.activeLeads)} icon={Target} accent="cyan" trend={`₱${(stats.wonValue / 1000).toFixed(0)}k won this period`} trendDirection="up" delay={0.05} />
         <StatCard label="Outstanding Balance" value={formatCurrency(stats.totalOutstanding)} icon={Wallet} accent="crimson" trend={`${overdueInvoices.length} invoices need follow-up`} trendDirection="down" delay={0.1} />
-        <StatCard label="Units Under Management" value={String(stats.totalUnits)} icon={Boxes} accent="green" delay={0.15} />
+        <StatCard label="Products Under Management" value={String(stats.totalUnits)} icon={Boxes} accent="green" delay={0.15} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

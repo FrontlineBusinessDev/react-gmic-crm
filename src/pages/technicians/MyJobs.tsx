@@ -128,9 +128,9 @@ const confirmCopy: Record<
     variant: "brand",
   },
   installed: {
-    title: "Mark unit as installed?",
+    title: "Mark product as installed?",
     description:
-      "This confirms the installation is complete. The office will automatically get an invoice for this job, the unit's warranty will start, and the next PMS visit will be scheduled.",
+      "This confirms the installation is complete. The office will automatically get an invoice for this job, the product's warranty will start, and the next PMS visit will be scheduled.",
     confirmLabel: "Mark Installed",
     variant: "brand",
   },
@@ -1037,7 +1037,7 @@ export default function MyJobs() {
                   <Textarea
                     value={cancelReason}
                     onChange={(e) => setCancelReason(e.target.value)}
-                    placeholder="e.g. Client requested reschedule, no access to unit..."
+                    placeholder="e.g. Client requested reschedule, no access to product..."
                   />
                 </div>
               )}
@@ -1098,7 +1098,7 @@ export default function MyJobs() {
                       {formatDate(installOutcome.warrantyExpiresOn)}
                     </p>
                     <p className="text-xs text-ink-500">
-                      Tracked on the client's unit record.
+                      Tracked on the client's product record.
                     </p>
                   </div>
                 </div>
@@ -1147,7 +1147,7 @@ export default function MyJobs() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Recommended unit(s)</Label>
+              <Label>Recommended product(s)</Label>
               <Input
                 value={surveyForm.recommendedUnits}
                 onChange={(e) =>

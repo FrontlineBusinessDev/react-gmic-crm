@@ -48,6 +48,8 @@ export interface Unit {
   nextServiceDue?: string;
   location: string; // e.g. "2nd Floor - Master Bedroom"
   serviceHistory: ServiceRecord[];
+  /** Services logged against this specific product, independent of completed-visit serviceHistory. */
+  services?: ClientServiceRecord[];
 }
 
 export interface ServiceRecord {
@@ -113,6 +115,17 @@ export interface Client {
   tags: string[];
   /** Set when this client originated from a converted Lead. */
   convertedFromLeadId?: string;
+  /** Services logged against the client directly, independent of invoicing or per-unit service history. */
+  services?: ClientServiceRecord[];
+}
+
+export interface ClientServiceRecord {
+  id: string;
+  serviceId: string;
+  serviceName: string;
+  notes?: string;
+  addedAt: string;
+  addedBy: string;
 }
 
 // ---------- Leads / Pipeline ----------
@@ -135,6 +148,18 @@ export interface Lead {
   lostReason?: string;
   /** Set once this lead is converted to a Client. */
   convertedToClientId?: string;
+  /** Products (existing or catalog-picked) and the services being availed on each, required once past Site Visit. */
+  productInterests?: LeadProductInterest[];
+}
+
+export interface LeadProductInterest {
+  id: string;
+  /** Set when referencing an existing client's already-owned product. */
+  unitId?: string;
+  /** Display name — the existing product's model, or the picked catalog item's name. */
+  productLabel: string;
+  serviceIds: string[];
+  materials?: { itemId: string; qty: number }[];
 }
 
 export interface SurveyReport {
@@ -292,9 +317,10 @@ export interface ScheduleJob {
   clientId?: string;
   clientName: string;
   address: string;
-  unitId?: string;
+  unitIds?: string[];
   notes: string;
-  serviceId?: string; // ServiceCatalogItem.id used to build the title
+  serviceIds?: string[]; // ServiceCatalogItem.id[] used to build the title
+  materials?: { itemId: string; qty: number }[];
   additionalMaterials?: AdditionalMaterialsUsage;
   /** Open-ended log of notes/photos added by admins or technicians over the life of the job. */
   noteEntries?: JobNoteEntry[];
