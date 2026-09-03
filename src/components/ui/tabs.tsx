@@ -75,7 +75,7 @@ const TabsList = React.forwardRef<
       <TabsPrimitive.List
         ref={ref}
         className={cn(
-          "hidden h-9 max-w-full items-center justify-start gap-0.5 overflow-x-auto rounded-lg bg-ink-100/70 p-1 text-ink-500 sm:flex",
+          "hidden h-9 max-w-full items-center justify-start gap-0.5 overflow-x-auto overflow-y-hidden rounded-lg bg-ink-100/70 p-1 text-ink-500 sm:flex",
           "[mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)]",
           className
         )}

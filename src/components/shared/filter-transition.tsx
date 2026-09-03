@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import type { ReactNode } from "react";
 
 interface FilterTransitionProps {
@@ -10,22 +10,25 @@ interface FilterTransitionProps {
 
 /**
  * Wraps filtered/sorted results (tables, cards, lists) so that changing a
- * filter, search term, sort order, or page produces a soft fade/slide
- * transition instead of an abrupt content swap.
+ * filter, search term, sort order, or page produces a soft fade/slide-in
+ * instead of an abrupt content swap.
+ *
+ * Deliberately not AnimatePresence-based: its exit animation never resolved
+ * under this app's React 19 + framer-motion combo (old content stuck on
+ * screen — or duplicated alongside the new content — after a filter change),
+ * so this only animates the enter. React's own key-based unmount/mount
+ * handles the swap instantly and correctly.
  */
 export function FilterTransition({ filterKey, children, className }: FilterTransitionProps) {
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={filterKey}
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -6 }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
-        className={className}
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
+    <motion.div
+      key={filterKey}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.18, ease: "easeOut" }}
+      className={className}
+    >
+      {children}
+    </motion.div>
   );
 }

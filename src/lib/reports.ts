@@ -72,6 +72,7 @@ export function getProductReport(inventory: InventoryItem[], invoices: Invoice[]
 export interface ClientPurchaseReportRow {
   clientId: string;
   clientName: string;
+  source?: ClientSource;
   totalBilled: number;
   totalPaid: number;
   balance: number;
@@ -88,6 +89,7 @@ export function getClientPurchaseReport(clients: Client[], invoices: Invoice[], 
     .map((c) => ({
       clientId: c.id,
       clientName: c.name,
+      source: c.source,
       totalBilled: c.totalBilled,
       totalPaid: c.totalPaid,
       balance: c.balance,
@@ -95,6 +97,41 @@ export function getClientPurchaseReport(clients: Client[], invoices: Invoice[], 
     }))
     .sort((a, b) => b.totalBilled - a.totalBilled);
   return { rows };
+}
+
+export interface SourceBreakdownRow {
+  source: ClientSource;
+  clientCount: number;
+  invoiceCount: number;
+  contractPrice: number;
+  collected: number;
+  outstanding: number;
+}
+
+/** Revenue/outstanding totals grouped by client Source, for financial and
+ * reporting views that need to separate figures by acquisition channel. */
+export function getRevenueBySourceReport(
+  clients: Client[],
+  invoices: Invoice[],
+  sources: ClientSource[]
+): SourceBreakdownRow[] {
+  return sources.map((source) => {
+    const sourceClientIds = new Set(clients.filter((c) => c.source === source).map((c) => c.id));
+    const sourceInvoices = invoices.filter((inv) => sourceClientIds.has(inv.clientId));
+    const contractPrice = sourceInvoices.reduce(
+      (sum, inv) => sum + inv.items.reduce((s, li) => s + li.qty * li.unitPrice, 0) + (inv.additionalCost ?? 0),
+      0
+    );
+    const collected = sourceInvoices.reduce((sum, inv) => sum + inv.amountPaid, 0);
+    return {
+      source,
+      clientCount: sourceClientIds.size,
+      invoiceCount: sourceInvoices.length,
+      contractPrice,
+      collected,
+      outstanding: Math.max(0, contractPrice - collected),
+    };
+  });
 }
 
 export interface ClientServiceReportRow {
@@ -171,7 +208,6 @@ export function getCashFlowReport(
   let materialsOut = 0;
   let allTimeMaterialsOut = 0;
   for (const batch of purchaseBatches) {
-    if (batch.status === "cancelled") continue;
     allTimeMaterialsOut += batch.totalCost;
     if (inRange(batch.createdAt)) materialsOut += batch.totalCost;
   }

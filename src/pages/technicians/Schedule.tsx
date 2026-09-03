@@ -158,6 +158,7 @@ export default function Schedule() {
     deleteJob,
     auditLog,
     addJobNote,
+    expenses,
   } = useCrmStore();
   const currentUser = useAuthStore((s) => s.currentUser);
   const activeServices = useMemo(
@@ -264,6 +265,8 @@ export default function Schedule() {
     unitIds: [] as string[],
     materials: [] as { itemId: string; qty: number }[],
     notes: "",
+    additionalCost: "",
+    additionalCostNote: "",
   };
   const [form, setForm] = useState(emptyForm);
   const selectedClient = clients.find((c) => c.id === form.clientId);
@@ -386,6 +389,8 @@ export default function Schedule() {
       unitIds: job.unitIds ?? [],
       materials: job.materials ?? [],
       notes: job.notes,
+      additionalCost: job.additionalCost != null ? String(job.additionalCost) : "",
+      additionalCostNote: job.additionalCostNote ?? "",
     });
     setActiveJob(null);
     setOpen(true);
@@ -416,6 +421,8 @@ export default function Schedule() {
         notes: form.notes,
         serviceIds: form.serviceIds,
         materials: form.materials,
+        additionalCost: form.additionalCost ? Number(form.additionalCost) : undefined,
+        additionalCostNote: form.additionalCostNote || undefined,
       });
     } else {
       addJob({
@@ -432,6 +439,8 @@ export default function Schedule() {
         notes: form.notes,
         serviceIds: form.serviceIds,
         materials: form.materials,
+        additionalCost: form.additionalCost ? Number(form.additionalCost) : undefined,
+        additionalCostNote: form.additionalCostNote || undefined,
       });
     }
     setForm(emptyForm);
@@ -639,6 +648,16 @@ export default function Schedule() {
                       setForm({ ...form, notes: e.target.value })
                     }
                   />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Additional cost (₱, optional)</Label>
+                    <Input type="number" value={form.additionalCost} onChange={(e) => setForm({ ...form, additionalCost: e.target.value })} placeholder="0.00" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Additional cost note</Label>
+                    <Input value={form.additionalCostNote} onChange={(e) => setForm({ ...form, additionalCostNote: e.target.value })} placeholder="e.g. Rush fee" />
+                  </div>
                 </div>
               </div>
               <DialogFooter>
@@ -1215,20 +1234,33 @@ export default function Schedule() {
                     <p className="mt-1 text-ink-700">{activeJob.notes}</p>
                   </div>
                 )}
+                {activeJob.materials && activeJob.materials.length > 0 && (
+                  <div className="rounded-lg bg-ink-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                      Materials Used
+                    </p>
+                    <div className="mt-1 space-y-0.5 text-ink-700">
+                      {activeJob.materials.map((m) => {
+                        const item = inventory.find((i) => i.id === m.itemId);
+                        if (!item) return null;
+                        return (
+                          <p key={m.itemId}>
+                            {item.name}: {m.qty} {item.unit ?? "pc"} ({formatCurrency(m.qty * item.unitCost)})
+                          </p>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {activeJob.additionalMaterials && (
                   <div className="rounded-lg bg-ink-50 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
                       Additional Materials
                     </p>
                     <div className="mt-1 space-y-0.5 text-ink-700">
-                      {activeJob.additionalMaterials.excessCopperFeet != null && (
-                        <p>Excess Copper: {activeJob.additionalMaterials.excessCopperFeet} ft</p>
-                      )}
                       {activeJob.additionalMaterials.breaker && (
                         <p>Breaker: {activeJob.additionalMaterials.breaker}</p>
-                      )}
-                      {activeJob.additionalMaterials.excessElectricalWireFeet != null && (
-                        <p>Excess Electrical Wire: {activeJob.additionalMaterials.excessElectricalWireFeet} ft</p>
                       )}
                       {activeJob.additionalMaterials.pvc && (
                         <p>PVC: {activeJob.additionalMaterials.pvc}</p>
@@ -1236,6 +1268,30 @@ export default function Schedule() {
                       {activeJob.additionalMaterials.others && (
                         <p>Others: {activeJob.additionalMaterials.others}</p>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {activeJob.additionalCost != null && (
+                  <div className="rounded-lg bg-ink-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                      Additional Cost
+                    </p>
+                    <div className="mt-1 space-y-0.5 text-ink-700">
+                      <p>{formatCurrency(activeJob.additionalCost)}{activeJob.additionalCostNote ? ` — ${activeJob.additionalCostNote}` : ""}</p>
+                    </div>
+                  </div>
+                )}
+
+                {expenses.filter((e) => e.jobId === activeJob.id).length > 0 && (
+                  <div className="rounded-lg bg-ink-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                      Linked Expenses
+                    </p>
+                    <div className="mt-1 space-y-0.5 text-ink-700">
+                      {expenses.filter((e) => e.jobId === activeJob.id).map((e) => (
+                        <p key={e.id}>{e.category}: {formatCurrency(e.amount)}{e.notes ? ` — ${e.notes}` : ""}</p>
+                      ))}
                     </div>
                   </div>
                 )}

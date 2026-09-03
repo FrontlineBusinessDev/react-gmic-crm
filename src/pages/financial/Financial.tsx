@@ -47,6 +47,16 @@ function invoiceTotal(inv: { items: { qty: number; unitPrice: number }[]; additi
   return inv.items.reduce((s, li) => s + li.qty * li.unitPrice, 0) + (inv.additionalCost ?? 0);
 }
 
+function expenseLinkLabel(
+  exp: { jobId?: string; invoiceId?: string },
+  schedule: { id: string; title: string }[],
+  invoices: { id: string; invoiceNumber: string }[]
+) {
+  if (exp.jobId) return schedule.find((j) => j.id === exp.jobId)?.title ?? null;
+  if (exp.invoiceId) return invoices.find((i) => i.id === exp.invoiceId)?.invoiceNumber ?? null;
+  return null;
+}
+
 function downloadCsv(filename: string, headers: string[], rows: (string | number)[][]) {
   const escape = (v: string | number) => {
     const s = String(v);
@@ -146,6 +156,7 @@ export default function Financial() {
   const [status, setStatus] = useState<(typeof statusFilters)[number]>("all");
   const [source, setSource] = useState<(typeof sourceFilters)[number]>("all");
   const [importOpen, setImportOpen] = useState(false);
+  const [mainTab, setMainTab] = useState<"list" | "pendingOrders" | "expenses" | "audit">("list");
 
   // Pending Orders (payment-first flow)
   const [newOrderMode, setNewOrderMode] = useState<"job" | "manual">("job");
@@ -170,6 +181,8 @@ export default function Financial() {
     amount: "",
     date: new Date().toISOString().slice(0, 10),
     notes: "",
+    jobId: "",
+    invoiceId: "",
   });
 
   const completedJobsWithoutOrder = useMemo(
@@ -256,13 +269,20 @@ export default function Financial() {
     setSource("all");
   }
 
+  // Summary cards scope to the selected Source filter (independent of status/search)
+  // so Financial can report figures separated by client Source, not just an unfiltered total.
+  const sourceScopedInvoices = useMemo(() => {
+    if (source === "all") return invoices;
+    return invoices.filter((inv) => clients.find((c) => c.id === inv.clientId)?.source === source);
+  }, [invoices, clients, source]);
+
   const totals = useMemo(() => {
-    const outstanding = invoices.reduce((sum, i) => sum + Math.max(0, invoiceTotal(i) - i.amountPaid), 0);
-    const overdue = invoices.filter((i) => i.status === "overdue").length;
-    const collected = invoices.reduce((s, i) => s + i.amountPaid, 0);
-    const contractPrice = invoices.reduce((sum, i) => sum + invoiceTotal(i), 0);
+    const outstanding = sourceScopedInvoices.reduce((sum, i) => sum + Math.max(0, invoiceTotal(i) - i.amountPaid), 0);
+    const overdue = sourceScopedInvoices.filter((i) => i.status === "overdue").length;
+    const collected = sourceScopedInvoices.reduce((s, i) => s + i.amountPaid, 0);
+    const contractPrice = sourceScopedInvoices.reduce((sum, i) => sum + invoiceTotal(i), 0);
     return { outstanding, overdue, collected, contractPrice };
-  }, [invoices]);
+  }, [sourceScopedInvoices]);
 
   function openAddInvoice() {
     setForm({ clientId: "", sourceId: "", description: "", qty: "1", unitPrice: "", dueDate: "", additionalCost: "", additionalCostNote: "" });
@@ -516,14 +536,19 @@ export default function Financial() {
 
   function handleAddExpense() {
     if (!expenseForm.amount || !expenseForm.date) return;
+    const linkedJob = expenseForm.jobId ? schedule.find((j) => j.id === expenseForm.jobId) : undefined;
+    const linkedInvoice = expenseForm.invoiceId ? invoices.find((i) => i.id === expenseForm.invoiceId) : undefined;
     addExpense({
       category: expenseForm.category,
       amount: Number(expenseForm.amount),
       date: expenseForm.date,
       notes: expenseForm.notes || undefined,
       createdBy: "You",
+      jobId: expenseForm.jobId || undefined,
+      invoiceId: expenseForm.invoiceId || undefined,
+      clientId: linkedJob?.clientId ?? linkedInvoice?.clientId,
     });
-    setExpenseForm({ category: "Employee Salaries", amount: "", date: new Date().toISOString().slice(0, 10), notes: "" });
+    setExpenseForm({ category: "Employee Salaries", amount: "", date: new Date().toISOString().slice(0, 10), notes: "", jobId: "", invoiceId: "" });
     setNewActionOpen(false);
   }
 
@@ -565,8 +590,14 @@ export default function Financial() {
             <Button variant="outline" onClick={handleExportCsv}>
               <FileDown className="h-4 w-4" /> Export CSV
             </Button>
-            <Button variant="brand" onClick={openAddInvoice}>
-              <Plus className="h-4 w-4" /> New
+            <Button
+              variant="brand"
+              onClick={
+                mainTab === "pendingOrders" ? openNewOrder : mainTab === "expenses" ? openNewExpense : openAddInvoice
+              }
+            >
+              <Plus className="h-4 w-4" />{" "}
+              {mainTab === "pendingOrders" ? "New Order" : mainTab === "expenses" ? "Add Expense" : "New"}
             </Button>
           </div>
         }
@@ -769,7 +800,7 @@ export default function Financial() {
                   )}
                 </div>
               </div>
-              <DialogFooter>
+              <DialogFooter className="mt-4">
                 <Button variant="outline" onClick={() => setNewActionOpen(false)}>Cancel</Button>
                 <Button variant="brand" onClick={handleAddInvoice}>Create</Button>
               </DialogFooter>
@@ -838,7 +869,7 @@ export default function Financial() {
                 </div>
               </TabsContent>
             </Tabs>
-            <DialogFooter>
+            <DialogFooter className="mt-4">
               <Button variant="outline" onClick={() => setNewActionOpen(false)}>Cancel</Button>
               <Button variant="brand" onClick={handleCreateNewOrder}>Create Order</Button>
             </DialogFooter>
@@ -871,8 +902,30 @@ export default function Financial() {
                 <Label>Notes</Label>
                 <Input value={expenseForm.notes} onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })} placeholder="Optional" />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Link to job (optional)</Label>
+                  <Combobox
+                    value={expenseForm.jobId}
+                    onChange={(v) => setExpenseForm({ ...expenseForm, jobId: v, invoiceId: "" })}
+                    placeholder="No job"
+                    searchPlaceholder="Search jobs..."
+                    options={schedule.map((j) => ({ value: j.id, label: j.title, sublabel: j.clientName }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Link to invoice (optional)</Label>
+                  <Combobox
+                    value={expenseForm.invoiceId}
+                    onChange={(v) => setExpenseForm({ ...expenseForm, invoiceId: v, jobId: "" })}
+                    placeholder="No invoice"
+                    searchPlaceholder="Search invoices..."
+                    options={invoices.map((i) => ({ value: i.id, label: i.invoiceNumber, sublabel: i.clientName }))}
+                  />
+                </div>
+              </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="mt-4">
               <Button variant="outline" onClick={() => setNewActionOpen(false)}>Cancel</Button>
               <Button variant="brand" onClick={handleAddExpense}>Add Expense</Button>
             </DialogFooter>
@@ -897,8 +950,11 @@ export default function Financial() {
         <Card><CardContent className="p-5"><p className="text-xs font-medium uppercase text-ink-500">Total Payment Received</p><p className="mt-1 font-display text-xl font-semibold text-brand-green-600">{formatCurrency(totals.collected)}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-xs font-medium uppercase text-ink-500">Overdue Invoices</p><p className="mt-1 font-display text-xl font-semibold text-ink-800">{totals.overdue}</p></CardContent></Card>
       </div>
+      {source !== "all" && (
+        <p className="-mt-2 text-xs text-ink-400">Figures above are scoped to Source: <span className="font-medium text-ink-600">{source}</span>. Clear the Source filter to see all clients.</p>
+      )}
 
-      <Tabs defaultValue="list">
+      <Tabs value={mainTab} onValueChange={(v) => setMainTab(v as typeof mainTab)}>
         <TabsList>
           <TabsTrigger value="list">Invoices</TabsTrigger>
           <TabsTrigger value="pendingOrders">Pending Orders{pendingOrders.filter((o) => o.status !== "invoiced").length > 0 ? ` (${pendingOrders.filter((o) => o.status !== "invoiced").length})` : ""}</TabsTrigger>
@@ -1020,6 +1076,14 @@ export default function Financial() {
                           ))}
                         </div>
                       )}
+                      {expanded && expenses.filter((e) => e.invoiceId === inv.id).length > 0 && (
+                        <div className="mt-1 space-y-1 rounded-lg border border-ink-100 bg-ink-50/60 p-2.5">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Linked Expenses</p>
+                          {expenses.filter((e) => e.invoiceId === inv.id).map((e) => (
+                            <p key={e.id} className="text-xs text-ink-700">{e.category}: {formatCurrency(e.amount)}</p>
+                          ))}
+                        </div>
+                      )}
                     </MobileListCard>
                   );
                 })}
@@ -1120,6 +1184,23 @@ export default function Financial() {
                             </TableCell>
                           </TableRow>
                         )}
+                        {expanded && expenses.filter((e) => e.invoiceId === inv.id).length > 0 && (
+                          <TableRow>
+                            <TableCell colSpan={8} className="bg-ink-50/60 py-3">
+                              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">
+                                Linked Expenses
+                              </p>
+                              <div className="space-y-1.5">
+                                {expenses.filter((e) => e.invoiceId === inv.id).map((e) => (
+                                  <div key={e.id} className="flex items-center justify-between gap-3 rounded-lg border border-ink-100 bg-white px-3 py-2 text-sm">
+                                    <span className="font-medium text-ink-700">{e.category}</span>
+                                    <span>{formatCurrency(e.amount)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
                       </Fragment>
                     );
                   })}
@@ -1133,11 +1214,6 @@ export default function Financial() {
         </TabsContent>
 
         <TabsContent value="pendingOrders" className="space-y-4">
-          <div className="flex justify-end">
-            <Button variant="brand" onClick={openNewOrder}>
-              <Plus className="h-4 w-4" /> New Order
-            </Button>
-          </div>
           {pendingOrders.length === 0 ? (
             <EmptyState icon={ClipboardList} title="No pending orders" description="Orders created from a completed job (or manually) show up here for payment before an invoice is generated." />
           ) : (
@@ -1209,11 +1285,6 @@ export default function Financial() {
         </TabsContent>
 
         <TabsContent value="expenses" className="space-y-4">
-          <div className="flex justify-end">
-            <Button variant="brand" onClick={openNewExpense}>
-              <Plus className="h-4 w-4" /> Add Expense
-            </Button>
-          </div>
           {expenses.length === 0 ? (
             <EmptyState icon={Banknote} title="No expenses logged" description="Log salaries, fuel, meal allowances, and other operational costs here." />
           ) : (
@@ -1226,6 +1297,9 @@ export default function Financial() {
                       <span className="text-sm font-semibold text-ink-800">{formatCurrency(exp.amount)}</span>
                     </div>
                     <MobileListRow label="Date">{formatDate(exp.date)}</MobileListRow>
+                    {expenseLinkLabel(exp, schedule, invoices) && (
+                      <MobileListRow label="Linked to">{expenseLinkLabel(exp, schedule, invoices)}</MobileListRow>
+                    )}
                     {exp.notes && <p className="text-xs text-ink-500">{exp.notes}</p>}
                     <div className="flex items-center justify-end pt-1">
                       <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => deleteExpense(exp.id)}>
@@ -1242,6 +1316,7 @@ export default function Financial() {
                       <TableHead>Date</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead>Amount</TableHead>
+                      <TableHead>Linked to</TableHead>
                       <TableHead>Notes</TableHead>
                       <TableHead />
                     </TableRow>
@@ -1252,6 +1327,7 @@ export default function Financial() {
                         <TableCell className="text-sm text-ink-600">{formatDate(exp.date)}</TableCell>
                         <TableCell className="text-sm text-ink-800">{exp.category}</TableCell>
                         <TableCell className="text-sm">{formatCurrency(exp.amount)}</TableCell>
+                        <TableCell className="text-sm text-ink-600">{expenseLinkLabel(exp, schedule, invoices) ?? "—"}</TableCell>
                         <TableCell className="max-w-xs truncate text-xs text-ink-500">{exp.notes ?? "—"}</TableCell>
                         <TableCell>
                           <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => deleteExpense(exp.id)}>

@@ -290,9 +290,7 @@ export type JobType = "Survey" | "Installation" | "PMS Cleaning" | "Repair" | "W
 export type JobStatus = "scheduled" | "in_progress" | "completed" | "installed" | "cancelled";
 
 export interface AdditionalMaterialsUsage {
-  excessCopperFeet?: number;
   breaker?: string;
-  excessElectricalWireFeet?: number;
   pvc?: string;
   others?: string;
 }
@@ -324,6 +322,8 @@ export interface ScheduleJob {
   serviceIds?: string[]; // ServiceCatalogItem.id[] used to build the title
   materials?: { itemId: string; qty: number }[];
   additionalMaterials?: AdditionalMaterialsUsage;
+  additionalCost?: number;
+  additionalCostNote?: string;
   /** Open-ended log of notes/photos added by admins or technicians over the life of the job. */
   noteEntries?: JobNoteEntry[];
   /** Why the job was cancelled — set when status is moved to "cancelled". */
@@ -404,6 +404,9 @@ export interface Expense {
   date: string; // ISO date
   notes?: string;
   createdBy: string;
+  jobId?: string; // ScheduleJob.id, when this expense is tied to a specific job
+  invoiceId?: string; // Invoice.id, when this expense is tied to a specific invoice
+  clientId?: string;
 }
 
 // ---------- Activity feed ----------
@@ -449,8 +452,6 @@ export interface PurchaseBatchLine {
   skus?: string[]; // per-unit SKUs, for categories that track them
 }
 
-export type PurchaseBatchStatus = "received" | "cancelled";
-
 export interface PurchaseBatch {
   id: string;
   batchNumber: string;
@@ -458,7 +459,6 @@ export interface PurchaseBatch {
   lines: PurchaseBatchLine[];
   totalCost: number;
   amountPaid: number;
-  status: PurchaseBatchStatus;
   createdAt: string;
   createdBy: string;
   receivedAt?: string;

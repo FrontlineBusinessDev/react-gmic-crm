@@ -217,7 +217,6 @@ interface CrmState {
 
   // Purchase Batches
   addPurchaseBatch: (input: { supplier: string; lines: Omit<PurchaseBatchLine, "id">[] }) => string;
-  cancelPurchaseBatch: (id: string) => void;
   recordBatchPayment: (id: string, amount: number, proof?: { url?: string; fileName?: string; paidWithoutProof?: boolean; notes?: string }) => void;
   // Reorder Requests
   addReorderRequest: (input: { inventoryItemId: string; quantityRequested: number; notes?: string }) => void;
@@ -254,6 +253,7 @@ interface CrmState {
   updateJob: (jobId: string, updates: Omit<ScheduleJob, "id">) => void;
   updateJobStatus: (jobId: string, status: JobStatus, cancellationReason?: string) => InstallationOutcome | undefined;
   logAdditionalMaterials: (jobId: string, materials: AdditionalMaterialsUsage) => void;
+  addJobMaterialsUsed: (jobId: string, entries: { itemId: string; qty: number }[]) => void;
   addJobNote: (jobId: string, entry: { authorId: string; authorName: string; text?: string; photos?: string[] }) => void;
   deleteJob: (jobId: string) => void;
   claimJob: (jobId: string, technicianId: string) => boolean;
@@ -903,40 +903,14 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       lines: fullLines,
       totalCost,
       amountPaid: 0,
-      status: "received",
       createdAt: new Date().toISOString(),
       createdBy: "You",
       receivedAt,
     };
     set((s) => ({ purchaseBatches: [newBatch, ...s.purchaseBatches] }));
-    useToastStore.getState().addToast({ variant: "success", message: `Batch "${batchNumber}" received — stock updated.` });
+    useToastStore.getState().addToast({ variant: "success", message: `Batch "${batchNumber}" added — stock updated.` });
     get().logAudit({ module: "purchaseBatch", entityId: id, entityLabel: batchNumber, action: "create", changes: [], actor: "You" });
     return id;
-  },
-
-  cancelPurchaseBatch: (id) => {
-    const batch = get().purchaseBatches.find((b) => b.id === id);
-    if (!batch || batch.status === "cancelled") return;
-    set((s) => ({ purchaseBatches: s.purchaseBatches.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)) }));
-    get().logAudit({ module: "purchaseBatch", entityId: id, entityLabel: batch.batchNumber, action: "update", changes: [{ field: "status", oldValue: batch.status, newValue: "cancelled" }], actor: "You" });
-
-    // Unlink any reorder requests that were bundled into this batch so they can be re-batched or cancelled.
-    const linkedRequests = get().reorderRequests.filter((r) => r.batchId === id);
-    if (linkedRequests.length > 0) {
-      set((s) => ({
-        reorderRequests: s.reorderRequests.map((r) => (r.batchId === id ? { ...r, batchId: undefined } : r)),
-      }));
-      for (const req of linkedRequests) {
-        get().logAudit({
-          module: "reorderRequest",
-          entityId: req.id,
-          entityLabel: req.itemName,
-          action: "update",
-          changes: [{ field: "batchId", oldValue: id, newValue: null }],
-          actor: "You",
-        });
-      }
-    }
   },
 
   recordBatchPayment: (id, amount, proof) => {
@@ -1353,6 +1327,29 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     });
   },
 
+  addJobMaterialsUsed: (jobId, entries) => {
+    const job = get().schedule.find((j) => j.id === jobId);
+    if (!job || entries.length === 0) return;
+    const merged = [...(job.materials ?? [])];
+    for (const entry of entries) {
+      const existing = merged.find((m) => m.itemId === entry.itemId);
+      if (existing) {
+        existing.qty += entry.qty;
+      } else {
+        merged.push({ ...entry });
+      }
+    }
+    set((s) => ({ schedule: s.schedule.map((j) => (j.id === jobId ? { ...j, materials: merged } : j)) }));
+    get().logAudit({
+      module: "schedule",
+      entityId: jobId,
+      entityLabel: job.title,
+      action: "update",
+      changes: [{ field: "materials", oldValue: job.materials?.length ?? 0, newValue: merged.length }],
+      actor: "You",
+    });
+  },
+
   addJobNote: (jobId, entry) => {
     const job = get().schedule.find((j) => j.id === jobId);
     if (!job) return;
@@ -1539,6 +1536,8 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       clientName: client.name,
       sourceJobId: jobId,
       items,
+      additionalCost: job.additionalCost,
+      additionalCostNote: job.additionalCostNote,
     });
   },
 

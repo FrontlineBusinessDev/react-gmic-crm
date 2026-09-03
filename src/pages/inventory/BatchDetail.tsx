@@ -157,11 +157,6 @@ export default function BatchDetail() {
       <PageHeader
         title={batch.batchNumber}
         description={batch.supplier}
-        actions={
-          <Badge variant={batch.status === "received" ? "success" : batch.status === "cancelled" ? "destructive" : "warning"}>
-            {batch.status}
-          </Badge>
-        }
       />
 
       <Card>
@@ -347,7 +342,7 @@ export default function BatchDetail() {
                         {item && <Badge variant="secondary">{item.category}</Badge>}
                       </div>
                     </div>
-                    <MobileListRow label="Quantity">{line.quantity}</MobileListRow>
+                    <MobileListRow label="Quantity">{line.quantity} {line.unit ?? "pc"}</MobileListRow>
                     <MobileListRow label="Unit Cost">{formatCurrency(line.unitCost)}</MobileListRow>
                     <MobileListRow label="Line Total">{formatCurrency(line.quantity * line.unitCost)}</MobileListRow>
                     {line.skus && line.skus.length > 0 && (
@@ -373,7 +368,7 @@ export default function BatchDetail() {
                       <TableRow key={line.id}>
                         <TableCell className="font-medium text-ink-800">{line.itemName}</TableCell>
                         <TableCell>{item ? <Badge variant="secondary">{item.category}</Badge> : "—"}</TableCell>
-                        <TableCell>{line.quantity}</TableCell>
+                        <TableCell>{line.quantity} {line.unit ?? "pc"}</TableCell>
                         <TableCell>{formatCurrency(line.unitCost)}</TableCell>
                         <TableCell>{formatCurrency(line.quantity * line.unitCost)}</TableCell>
                         <TableCell className="text-sm text-ink-600">{line.skus && line.skus.length > 0 ? formatSkus(line.skus) : "—"}</TableCell>

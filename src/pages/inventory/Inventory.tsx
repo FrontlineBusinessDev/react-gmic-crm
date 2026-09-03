@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
-import { Plus, AlertTriangle, Boxes, Search, X, Pencil, Archive, ArchiveRestore, PackagePlus, Mail, PhoneCall, Truck, Ban, PackageCheck, Download, Printer, FileText, Eye, ArrowUpDown, Settings2, PackageOpen, PackageX, Wrench, FileUp, ChevronRight } from "lucide-react";
+import { Plus, AlertTriangle, Boxes, Search, X, Pencil, Archive, ArchiveRestore, PackagePlus, Mail, PhoneCall, Truck, Ban, PackageCheck, Download, Printer, FileText, Eye, ArrowUpDown, Settings2, PackageOpen, Wrench, FileUp, ChevronRight } from "lucide-react";
 import { FilterButton } from "@/components/shared/filter-button";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card } from "@/components/ui/card";
@@ -23,7 +23,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { MobileList, MobileListCard, MobileListRow } from "@/components/shared/mobile-list";
-import { InventoryStatusBadge, ReorderRequestStatusBadge, PurchaseBatchStatusBadge } from "@/components/shared/status-badge";
+import { InventoryStatusBadge, ReorderRequestStatusBadge } from "@/components/shared/status-badge";
 import { AuditLogTable } from "@/components/shared/audit-log-table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FilterTransition } from "@/components/shared/filter-transition";
@@ -61,6 +61,7 @@ function parseSkus(skusInput: string): string[] {
 
 const statusFilters: (InventoryStatus | "all")[] = ["all", "active", "archived"];
 const reorderStatusFilters: (ReorderRequestStatus | "all")[] = ["all", "requested", "ordered", "delivered", "cancelled"];
+const UNIT_OPTIONS = ["piece", "meter", "foot", "kg", "liter", "box"];
 const emptyForm = {
   name: "",
   sku: "",
@@ -70,6 +71,7 @@ const emptyForm = {
   reorderLevel: "",
   unitCost: "",
   unitPrice: "",
+  unit: "piece",
   supplier: "",
   bom: [] as BomLine[],
 };
@@ -94,7 +96,6 @@ export default function Inventory() {
     archiveInventoryCategory,
     restoreInventoryCategory,
     addPurchaseBatch,
-    cancelPurchaseBatch,
     auditLog,
     reorderRequests,
     addReorderRequest,
@@ -436,6 +437,7 @@ export default function Inventory() {
       reorderLevel: String(item.reorderLevel),
       unitCost: String(item.unitCost),
       unitPrice: String(item.unitPrice),
+      unit: item.unit ?? "piece",
       supplier: item.supplier,
       bom: item.bom ?? [],
     });
@@ -479,6 +481,7 @@ export default function Inventory() {
       reorderLevel: Number(form.reorderLevel) || 0,
       unitCost: Number(form.unitCost) || 0,
       unitPrice: Number(form.unitPrice) || 0,
+      unit: form.unit,
       supplier: form.supplier,
       bom: selectedFormCategory?.tracksSerials ? form.bom : undefined,
     };
@@ -648,6 +651,17 @@ export default function Inventory() {
                     <Label>Unit price (₱)</Label>
                     <Input type="number" value={form.unitPrice} onChange={(e) => setForm({ ...form, unitPrice: e.target.value })} />
                   </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Unit of measurement</Label>
+                  <Select value={form.unit} onValueChange={(v) => setForm({ ...form, unit: v })}>
+                    <SelectTrigger><SelectValue placeholder="Unit" /></SelectTrigger>
+                    <SelectContent>
+                      {UNIT_OPTIONS.map((u) => (
+                        <SelectItem key={u} value={u}>{u}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Supplier</Label>
@@ -846,11 +860,12 @@ export default function Inventory() {
                           <MobileListRow label="Stock">
                             <div className="flex items-center justify-end gap-1.5">
                               <span className={low ? "font-semibold text-brand-crimson-600" : "text-ink-700"}>{item.quantityOnHand}</span>
+                              <span className="text-xs text-ink-400">{item.unit ?? "piece"}</span>
                               {low && <AlertTriangle className="h-3.5 w-3.5 text-brand-crimson-500" />}
                               <span className="text-xs text-ink-400">(reorder at {item.reorderLevel})</span>
                             </div>
                           </MobileListRow>
-                          <MobileListRow label="Unit Price">{formatCurrency(item.unitPrice)}</MobileListRow>
+                          <MobileListRow label="Unit Price">{formatCurrency(item.unitPrice)} / {item.unit ?? "piece"}</MobileListRow>
                           <MobileListRow label="Supplier">{item.supplier || "—"}</MobileListRow>
                           <MobileListRow label="Status"><InventoryStatusBadge status={status} /></MobileListRow>
                           <div className="flex items-center justify-end gap-1 pt-1">
@@ -905,11 +920,12 @@ export default function Inventory() {
                             <TableCell>
                               <div className="flex items-center gap-1.5">
                                 <span className={low ? "font-semibold text-brand-crimson-600" : "text-ink-700"}>{item.quantityOnHand}</span>
+                                <span className="text-xs text-ink-400">{item.unit ?? "piece"}</span>
                                 {low && <AlertTriangle className="h-3.5 w-3.5 text-brand-crimson-500" />}
                               </div>
                               <p className="text-xs text-ink-400">Reorder at {item.reorderLevel}</p>
                             </TableCell>
-                            <TableCell>{formatCurrency(item.unitPrice)}</TableCell>
+                            <TableCell>{formatCurrency(item.unitPrice)} / {item.unit ?? "piece"}</TableCell>
                             <TableCell className="text-sm text-ink-600">{item.supplier}</TableCell>
                             <TableCell><InventoryStatusBadge status={status} /></TableCell>
                             <TableCell>
@@ -963,20 +979,12 @@ export default function Inventory() {
                         <p className="text-xs text-ink-400">{batch.supplier}</p>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <PurchaseBatchStatusBadge status={batch.status} />
                         <ChevronRight className="h-4 w-4 shrink-0 text-ink-300" />
                       </div>
                     </div>
                     <MobileListRow label="Lines">{batch.lines.length}</MobileListRow>
                     <MobileListRow label="Total cost">{formatCurrency(batch.totalCost)}</MobileListRow>
                     <MobileListRow label="Created">{new Date(batch.createdAt).toLocaleDateString()}</MobileListRow>
-                    {batch.status !== "cancelled" && (
-                      <div className="flex items-center justify-end gap-1 pt-1">
-                        <Button size="sm" variant="ghost" className="text-ink-500" onClick={(e) => { e.stopPropagation(); cancelPurchaseBatch(batch.id); }}>
-                          <PackageX className="h-3.5 w-3.5" /> Cancel
-                        </Button>
-                      </div>
-                    )}
                   </MobileListCard>
                 ))}
               </MobileList>
@@ -988,9 +996,7 @@ export default function Inventory() {
                       <TableHead>Supplier</TableHead>
                       <TableHead>Lines</TableHead>
                       <TableHead>Total Cost</TableHead>
-                      <TableHead>Status</TableHead>
                       <TableHead>Received</TableHead>
-                      <TableHead />
                       <TableHead />
                     </TableRow>
                   </TableHeader>
@@ -1005,19 +1011,7 @@ export default function Inventory() {
                         <TableCell className="text-sm text-ink-600">{batch.supplier}</TableCell>
                         <TableCell>{batch.lines.length}</TableCell>
                         <TableCell>{formatCurrency(batch.totalCost)}</TableCell>
-                        <TableCell>
-                          <PurchaseBatchStatusBadge status={batch.status} />
-                        </TableCell>
                         <TableCell className="text-sm text-ink-600">{batch.receivedAt ? new Date(batch.receivedAt).toLocaleDateString() : "—"}</TableCell>
-                        <TableCell>
-                          {batch.status !== "cancelled" && (
-                            <div className="flex items-center justify-end gap-1">
-                              <Button size="sm" variant="ghost" className="text-ink-500" onClick={(e) => { e.stopPropagation(); cancelPurchaseBatch(batch.id); }}>
-                                <PackageX className="h-3.5 w-3.5" /> Cancel
-                              </Button>
-                            </div>
-                          )}
-                        </TableCell>
                         <TableCell>
                           <ChevronRight className="h-4 w-4 text-ink-300 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-blue-600" />
                         </TableCell>
@@ -1653,7 +1647,7 @@ export default function Inventory() {
                           <Select value={line.unit} onValueChange={(v) => updateBatchLine(line.key, { unit: v })}>
                             <SelectTrigger><SelectValue placeholder="Unit" /></SelectTrigger>
                             <SelectContent>
-                              {["piece", "meter", "foot", "kg", "liter", "box"].map((u) => (
+                              {UNIT_OPTIONS.map((u) => (
                                 <SelectItem key={u} value={u}>{u}</SelectItem>
                               ))}
                             </SelectContent>

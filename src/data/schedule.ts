@@ -15,6 +15,12 @@ export const mockSchedule: ScheduleJob[] = [
     address: "5th Flr, Medical Arts Bldg, Biñan, Laguna",
     notes: "Bring 2.0HP low-noise unit, panel confirmed ready.",
     serviceIds: ["svc-006"],
+    materials: [
+      { itemId: "inv-002", qty: 1 },
+      { itemId: "inv-017", qty: 20 },
+      { itemId: "inv-007", qty: 1 },
+      { itemId: "inv-010", qty: 1 },
+    ],
   },
   {
     id: "job-002",
@@ -30,6 +36,7 @@ export const mockSchedule: ScheduleJob[] = [
     unitIds: ["un-004"],
     notes: "Quarterly PMS, kitchen prep area unit.",
     serviceIds: ["svc-002"],
+    materials: [{ itemId: "inv-015", qty: 2 }],
   },
   {
     id: "job-003",
@@ -58,6 +65,10 @@ export const mockSchedule: ScheduleJob[] = [
     unitIds: ["un-007"],
     notes: "Room 202 unit needs service, weak cooling reported.",
     serviceIds: ["svc-003"],
+    materials: [
+      { itemId: "inv-008", qty: 1 },
+      { itemId: "inv-010", qty: 1 },
+    ],
   },
   {
     id: "job-005",
@@ -73,6 +84,7 @@ export const mockSchedule: ScheduleJob[] = [
     unitIds: ["un-002"],
     notes: "Kids room unit flagged needs_service.",
     serviceIds: ["svc-002"],
+    materials: [{ itemId: "inv-008", qty: 1 }],
   },
   {
     id: "job-006",
@@ -87,6 +99,12 @@ export const mockSchedule: ScheduleJob[] = [
     address: "45 Mahogany Ave., Greenfield Subd., Sta. Rosa, Laguna",
     notes: "Completed without issues.",
     serviceIds: ["svc-006"],
+    materials: [
+      { itemId: "inv-004", qty: 1 },
+      { itemId: "inv-017", qty: 15 },
+      { itemId: "inv-007", qty: 1 },
+      { itemId: "inv-010", qty: 1 },
+    ],
   },
   {
     id: "job-007",
@@ -153,6 +171,12 @@ export const mockSchedule: ScheduleJob[] = [
     address: "National Hwy., Brgy. Tagapo, Sta. Rosa, Laguna",
     notes: "Phase 2 of 2 — stockroom unit, coordinate with branch manager for after-hours access.",
     serviceIds: ["svc-006"],
+    materials: [
+      { itemId: "inv-011", qty: 1 },
+      { itemId: "inv-017", qty: 25 },
+      { itemId: "inv-007", qty: 1 },
+      { itemId: "inv-010", qty: 1 },
+    ],
   },
   {
     id: "job-012",
@@ -192,10 +216,9 @@ export const mockSchedule: ScheduleJob[] = [
     address: "21 Rizal St., Los Baños, Laguna",
     notes: "Weak cooling reported, capacitor replaced.",
     serviceIds: ["svc-003"],
+    materials: [{ itemId: "inv-008", qty: 1 }],
     additionalMaterials: {
-      excessCopperFeet: 0,
       breaker: "20A",
-      others: "1x Run Capacitor 35uF from van stock",
     },
     noteEntries: [
       {
@@ -251,5 +274,11 @@ export const mockSchedule: ScheduleJob[] = [
     address: "21 Rizal St., Los Baños, Laguna",
     notes: "Second dining-area unit, matching first install.",
     serviceIds: ["svc-006"],
+    materials: [
+      { itemId: "inv-001", qty: 1 },
+      { itemId: "inv-017", qty: 18 },
+      { itemId: "inv-007", qty: 1 },
+      { itemId: "inv-010", qty: 1 },
+    ],
   },
 ];

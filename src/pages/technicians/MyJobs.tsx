@@ -32,6 +32,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { FilterButton } from "@/components/shared/filter-button";
+import { MultiCombobox } from "@/components/ui/multi-combobox";
 import {
   Table,
   TableHeader,
@@ -60,7 +61,7 @@ import { Pagination } from "@/components/shared/pagination";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore, type InstallationOutcome } from "@/store/crmStore";
 import { useAuthStore } from "@/store/authStore";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatCurrency } from "@/lib/utils";
 import type { JobStatus, JobType, ScheduleJob } from "@/types";
 
 const jobTypes: (JobType | "all")[] = [
@@ -145,8 +146,20 @@ const confirmCopy: Record<
 
 export default function MyJobs() {
   const currentUser = useAuthStore((s) => s.currentUser);
-  const { schedule, leads, updateJobStatus, logAdditionalMaterials, addSurveyReport, claimJob, addJobNote } =
-    useCrmStore();
+  const {
+    schedule,
+    leads,
+    updateJob,
+    updateJobStatus,
+    logAdditionalMaterials,
+    addJobMaterialsUsed,
+    addSurveyReport,
+    claimJob,
+    addJobNote,
+    inventory,
+    inventoryCategories,
+    expenses,
+  } = useCrmStore();
   const [activeJob, setActiveJob] = useState<ScheduleJob | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(
     null,
@@ -164,12 +177,24 @@ export default function MyJobs() {
   const [materialsOpen, setMaterialsOpen] = useState(false);
   const [materialsAction, setMaterialsAction] = useState<PendingAction | null>(null);
   const [materialsForm, setMaterialsForm] = useState({
-    excessCopperFeet: "",
     breaker: "",
-    excessElectricalWireFeet: "",
     pvc: "",
     others: "",
   });
+  const [materialsUsedForm, setMaterialsUsedForm] = useState<{ itemId: string; qty: number }[]>([]);
+  const [materialsAdditionalCost, setMaterialsAdditionalCost] = useState("");
+  const [materialsAdditionalCostNote, setMaterialsAdditionalCostNote] = useState("");
+
+  const materialItems = useMemo(
+    () =>
+      inventory.filter(
+        (i) =>
+          (i.status ?? "active") === "active" &&
+          !inventoryCategories.find((c) => c.name === i.category)?.tracksSerials &&
+          i.quantityOnHand > 0
+      ),
+    [inventory, inventoryCategories]
+  );
 
   const [activeView, setActiveView] = useState<"cards" | "table">("cards");
   const [activeQuery, setActiveQuery] = useState("");
@@ -370,32 +395,40 @@ export default function MyJobs() {
 
   function openMaterialsForm(action: PendingAction) {
     setMaterialsForm({
-      excessCopperFeet: "",
       breaker: "",
-      excessElectricalWireFeet: "",
       pvc: "",
       others: "",
     });
+    setMaterialsUsedForm([]);
+    setMaterialsAdditionalCost(activeJob?.additionalCost != null ? String(activeJob.additionalCost) : "");
+    setMaterialsAdditionalCostNote(activeJob?.additionalCostNote ?? "");
     setMaterialsAction(action);
     setMaterialsOpen(true);
   }
 
   function submitMaterialsForm() {
     if (!activeJob || !materialsAction) return;
-    const hasAny =
-      materialsForm.excessCopperFeet ||
-      materialsForm.breaker ||
-      materialsForm.excessElectricalWireFeet ||
-      materialsForm.pvc ||
-      materialsForm.others;
+    const hasAny = materialsForm.breaker || materialsForm.pvc || materialsForm.others;
     if (hasAny) {
       logAdditionalMaterials(activeJob.id, {
-        excessCopperFeet: materialsForm.excessCopperFeet ? Number(materialsForm.excessCopperFeet) : undefined,
         breaker: materialsForm.breaker || undefined,
-        excessElectricalWireFeet: materialsForm.excessElectricalWireFeet ? Number(materialsForm.excessElectricalWireFeet) : undefined,
         pvc: materialsForm.pvc || undefined,
         others: materialsForm.others || undefined,
       });
+    }
+    const usedEntries = materialsUsedForm.filter((m) => m.qty > 0);
+    if (usedEntries.length > 0) {
+      addJobMaterialsUsed(activeJob.id, usedEntries);
+    }
+    if (materialsAdditionalCost || materialsAdditionalCostNote) {
+      const freshJob = useCrmStore.getState().schedule.find((j) => j.id === activeJob.id);
+      if (freshJob) {
+        updateJob(activeJob.id, {
+          ...freshJob,
+          additionalCost: materialsAdditionalCost ? Number(materialsAdditionalCost) : undefined,
+          additionalCostNote: materialsAdditionalCostNote || undefined,
+        });
+      }
     }
     setMaterialsOpen(false);
     requestStatusChange(materialsAction);
@@ -871,20 +904,33 @@ export default function MyJobs() {
                   </p>
                 </div>
 
+                {activeJob.materials && activeJob.materials.length > 0 && (
+                  <div className="rounded-lg bg-ink-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                      Materials Used
+                    </p>
+                    <div className="mt-1 space-y-0.5 text-ink-700">
+                      {activeJob.materials.map((m) => {
+                        const item = inventory.find((i) => i.id === m.itemId);
+                        if (!item) return null;
+                        return (
+                          <p key={m.itemId}>
+                            {item.name}: {m.qty} {item.unit ?? "pc"} ({formatCurrency(m.qty * item.unitCost)})
+                          </p>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {activeJob.additionalMaterials && (
                   <div className="rounded-lg bg-ink-50 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
                       Additional Materials
                     </p>
                     <div className="mt-1 space-y-0.5 text-ink-700">
-                      {activeJob.additionalMaterials.excessCopperFeet != null && (
-                        <p>Excess Copper: {activeJob.additionalMaterials.excessCopperFeet} ft</p>
-                      )}
                       {activeJob.additionalMaterials.breaker && (
                         <p>Breaker: {activeJob.additionalMaterials.breaker}</p>
-                      )}
-                      {activeJob.additionalMaterials.excessElectricalWireFeet != null && (
-                        <p>Excess Electrical Wire: {activeJob.additionalMaterials.excessElectricalWireFeet} ft</p>
                       )}
                       {activeJob.additionalMaterials.pvc && (
                         <p>PVC: {activeJob.additionalMaterials.pvc}</p>
@@ -892,6 +938,30 @@ export default function MyJobs() {
                       {activeJob.additionalMaterials.others && (
                         <p>Others: {activeJob.additionalMaterials.others}</p>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {activeJob.additionalCost != null && (
+                  <div className="rounded-lg bg-ink-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                      Additional Cost
+                    </p>
+                    <div className="mt-1 space-y-0.5 text-ink-700">
+                      <p>{formatCurrency(activeJob.additionalCost)}{activeJob.additionalCostNote ? ` — ${activeJob.additionalCostNote}` : ""}</p>
+                    </div>
+                  </div>
+                )}
+
+                {expenses.filter((e) => e.jobId === activeJob.id).length > 0 && (
+                  <div className="rounded-lg bg-ink-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                      Linked Expenses
+                    </p>
+                    <div className="mt-1 space-y-0.5 text-ink-700">
+                      {expenses.filter((e) => e.jobId === activeJob.id).map((e) => (
+                        <p key={e.id}>{e.category}: {formatCurrency(e.amount)}{e.notes ? ` — ${e.notes}` : ""}</p>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -1214,21 +1284,63 @@ export default function MyJobs() {
       <Dialog open={materialsOpen} onOpenChange={setMaterialsOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Additional materials used</DialogTitle>
+            <DialogTitle>Materials used</DialogTitle>
             <DialogDescription>
-              Log any extra materials used on this job, for office records. Leave anything not used blank.
+              Log any materials used on this job so stock and cost stay accurate. Leave anything not used blank.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label>Excess Copper (in feet)</Label>
-              <Input
-                type="number"
-                min={0}
-                value={materialsForm.excessCopperFeet}
-                onChange={(e) => setMaterialsForm({ ...materialsForm, excessCopperFeet: e.target.value })}
-                placeholder="0"
+              <Label>Materials used</Label>
+              <MultiCombobox
+                options={materialItems.map((i) => ({
+                  value: i.id,
+                  label: i.name,
+                  sublabel: `${i.sku} · ${i.quantityOnHand} in stock`,
+                }))}
+                value={materialsUsedForm.map((m) => m.itemId)}
+                onChange={(ids) =>
+                  setMaterialsUsedForm(
+                    ids.map((itemId) => materialsUsedForm.find((m) => m.itemId === itemId) ?? { itemId, qty: 1 })
+                  )
+                }
+                placeholder="No materials used"
+                searchPlaceholder="Search materials..."
               />
+              {materialsUsedForm.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  {materialsUsedForm.map((m) => {
+                    const item = materialItems.find((i) => i.id === m.itemId);
+                    if (!item) return null;
+                    return (
+                      <div key={m.itemId} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="truncate text-ink-600">{item.name}</span>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={item.quantityOnHand}
+                            step={1}
+                            value={m.qty}
+                            onChange={(e) => {
+                              const raw = Number(e.target.value) || 1;
+                              const qty = Math.min(Math.max(raw, 1), item.quantityOnHand);
+                              setMaterialsUsedForm(
+                                materialsUsedForm.map((mm) => (mm.itemId === m.itemId ? { ...mm, qty } : mm))
+                              );
+                            }}
+                            className="h-7 w-16 text-xs"
+                          />
+                          <span className="w-8 text-ink-400">{item.unit ?? "pc"}</span>
+                          <span className="w-20 shrink-0 text-right font-medium text-ink-700">
+                            {formatCurrency(m.qty * item.unitCost)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Breaker</Label>
@@ -1236,16 +1348,6 @@ export default function MyJobs() {
                 value={materialsForm.breaker}
                 onChange={(e) => setMaterialsForm({ ...materialsForm, breaker: e.target.value })}
                 placeholder="e.g. 20A x1"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Excess Electrical Wire (in feet)</Label>
-              <Input
-                type="number"
-                min={0}
-                value={materialsForm.excessElectricalWireFeet}
-                onChange={(e) => setMaterialsForm({ ...materialsForm, excessElectricalWireFeet: e.target.value })}
-                placeholder="0"
               />
             </div>
             <div className="space-y-1.5">
@@ -1263,6 +1365,16 @@ export default function MyJobs() {
                 onChange={(e) => setMaterialsForm({ ...materialsForm, others: e.target.value })}
                 placeholder="Anything else used"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Additional cost (₱, optional)</Label>
+                <Input type="number" value={materialsAdditionalCost} onChange={(e) => setMaterialsAdditionalCost(e.target.value)} placeholder="0.00" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Additional cost note</Label>
+                <Input value={materialsAdditionalCostNote} onChange={(e) => setMaterialsAdditionalCostNote(e.target.value)} placeholder="e.g. Rush fee" />
+              </div>
             </div>
           </div>
           <DialogFooter>

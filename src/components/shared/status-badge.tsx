@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { useCrmStore } from "@/store/crmStore";
-import type { ProjectStatus, UnitStatus, InvoiceStatus, JobStatus, ClientStatus, InventoryStatus, ServiceCatalogStatus, SupplierStatus, UserStatus, RoleStatus, ReorderRequestStatus, PurchaseBatchStatus, PendingOrderStatus } from "@/types";
+import type { ProjectStatus, UnitStatus, InvoiceStatus, JobStatus, ClientStatus, InventoryStatus, ServiceCatalogStatus, SupplierStatus, UserStatus, RoleStatus, ReorderRequestStatus, PendingOrderStatus } from "@/types";
 
 const unitStatusMap: Record<UnitStatus, { label: string; variant: "secondary" | "info" | "warning" | "success" | "destructive" }> = {
   active: { label: "Active", variant: "success" },
@@ -50,11 +50,6 @@ const reorderRequestStatusMap: Record<ReorderRequestStatus, { label: string; var
   requested: { label: "Requested", variant: "info" },
   ordered: { label: "Ordered", variant: "warning" },
   delivered: { label: "Delivered", variant: "success" },
-  cancelled: { label: "Cancelled", variant: "destructive" },
-};
-
-const purchaseBatchStatusMap: Record<PurchaseBatchStatus, { label: string; variant: "secondary" | "info" | "warning" | "success" | "destructive" }> = {
-  received: { label: "Received", variant: "success" },
   cancelled: { label: "Cancelled", variant: "destructive" },
 };
 
@@ -128,11 +123,6 @@ export function SupplierStatusBadge({ status }: { status: SupplierStatus }) {
 
 export function ReorderRequestStatusBadge({ status }: { status: ReorderRequestStatus }) {
   const { label, variant } = reorderRequestStatusMap[status];
-  return <Badge variant={variant}>{label}</Badge>;
-}
-
-export function PurchaseBatchStatusBadge({ status }: { status: PurchaseBatchStatus }) {
-  const { label, variant } = purchaseBatchStatusMap[status];
   return <Badge variant={variant}>{label}</Badge>;
 }
 
