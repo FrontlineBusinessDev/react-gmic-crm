@@ -37,8 +37,6 @@ import { exportInvoicePdf } from "@/lib/invoice-pdf";
 import type { ClientSource, Invoice, InvoiceStatus, PaymentRecord, PaymentMethod, PendingOrder, ExpenseCategory } from "@/types";
 
 const statusFilters: (InvoiceStatus | "all")[] = ["all", "unpaid", "partial", "paid", "overdue"];
-const clientSourceOptions: ClientSource[] = ["GMIC", "Imperial", "MegaSaver", "Alfamart"];
-const sourceFilters: (ClientSource | "all")[] = ["all", ...clientSourceOptions];
 const FINANCIAL_CSV_HEADERS = ["invoiceNumber", "clientId", "issueDate", "dueDate", "description", "qty", "unitPrice"];
 const paymentMethods: PaymentMethod[] = ["Cash", "Bank Transfer", "GCash", "Check", "Other"];
 const expenseCategories: ExpenseCategory[] = ["Employee Salaries", "Gas/Fuel", "Meal Allowances", "Other"];
@@ -122,7 +120,12 @@ export default function Financial() {
     invoiceNumberFormat,
     setInvoiceNumberFormat,
     previewNextInvoiceNumber,
+    sources,
   } = useCrmStore();
+  const sourceFilters = useMemo(
+    () => ["all", ...sources.filter((s) => s.status === "active").map((s) => s.name)] as (ClientSource | "all")[],
+    [sources],
+  );
   const activeInventory = useMemo(() => inventory.filter((i) => (i.status ?? "active") === "active"), [inventory]);
   const activeServiceCatalog = useMemo(() => serviceCatalog.filter((s) => (s.status ?? "active") === "active"), [serviceCatalog]);
   const invoiceAuditEntries = useMemo(() => auditLog.filter((e) => e.module === "invoice"), [auditLog]);

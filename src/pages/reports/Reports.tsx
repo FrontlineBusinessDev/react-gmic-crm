@@ -52,12 +52,6 @@ import {
   type ReportPeriod,
 } from "@/lib/reports";
 
-const clientSourceOptions: ClientSource[] = [
-  "GMIC",
-  "Imperial",
-  "MegaSaver",
-  "Alfamart",
-];
 const periodOptions: { value: ReportPeriod; label: string }[] = [
   { value: "daily", label: "Daily" },
   { value: "weekly", label: "Weekly" },
@@ -65,8 +59,12 @@ const periodOptions: { value: ReportPeriod; label: string }[] = [
 ];
 
 export default function Reports() {
-  const { inventory, invoices, clients, schedule, purchaseBatches, expenses } =
+  const { inventory, invoices, clients, schedule, purchaseBatches, expenses, sources } =
     useCrmStore();
+  const clientSourceOptions = useMemo(
+    () => sources.filter((s) => s.status === "active").map((s) => s.name),
+    [sources],
+  );
   const [purchasesSource, setPurchasesSource] = useState<ClientSource | "all">(
     "all",
   );

@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Select,
   SelectTrigger,
@@ -94,8 +95,6 @@ function formatDateTime(iso: string) {
   return d.toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-const clientSourceOptions: ClientSource[] = ["GMIC", "Imperial", "MegaSaver", "Alfamart"];
-
 function warrantyInfo(unit: Unit) {
   const expiresOn = addMonthsIso(unit.installDate, unit.warrantyMonths);
   const daysLeft = daysBetween(new Date().toISOString().slice(0, 10), expiresOn);
@@ -153,6 +152,7 @@ export default function ClientDetail() {
     inventory,
     inventoryCategories,
     brands,
+    sources,
     addUnitToClient,
     serviceCatalog,
     markSerializedUnitInstalled,
@@ -164,6 +164,7 @@ export default function ClientDetail() {
     leads,
   } = useCrmStore();
   const client = clients.find((c) => c.id === id);
+  const activeSources = useMemo(() => sources.filter((s) => s.status === "active"), [sources]);
   const activeServiceCatalog = useMemo(
     () => serviceCatalog.filter((s) => (s.status ?? "active") === "active"),
     [serviceCatalog]
@@ -835,13 +836,12 @@ export default function ClientDetail() {
               </div>
               <div className="space-y-1.5">
                 <Label>Date of Engagement</Label>
-                <Input
-                  type="date"
+                <DatePicker
                   value={editForm.dateOfEngagement}
-                  onChange={(e) =>
+                  onChange={(value) =>
                     setEditForm({
                       ...editForm,
-                      dateOfEngagement: e.target.value,
+                      dateOfEngagement: value,
                     })
                   }
                 />
@@ -868,9 +868,9 @@ export default function ClientDetail() {
                     <SelectValue placeholder="Nothing Specified" />
                   </SelectTrigger>
                   <SelectContent>
-                    {clientSourceOptions.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
+                    {activeSources.map((option) => (
+                      <SelectItem key={option.id} value={option.name}>
+                        {option.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

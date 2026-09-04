@@ -65,6 +65,7 @@ import { Pagination } from "@/components/shared/pagination";
 import { CsvImportDialog } from "@/components/shared/csv-import-dialog";
 import { TimelineView } from "@/components/schedule/timeline-view";
 import { JobNotesPanel } from "@/components/schedule/job-notes";
+import { JobProductsAndMaterials } from "@/components/schedule/job-detail-sections";
 import { usePagination } from "@/lib/use-pagination";
 import { useCrmStore } from "@/store/crmStore";
 import { useAuthStore } from "@/store/authStore";
@@ -1234,67 +1235,14 @@ export default function Schedule() {
                     <p className="mt-1 text-ink-700">{activeJob.notes}</p>
                   </div>
                 )}
-                {activeJob.materials && activeJob.materials.length > 0 && (
-                  <div className="rounded-lg bg-ink-50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
-                      Materials Used
-                    </p>
-                    <div className="mt-1 space-y-0.5 text-ink-700">
-                      {activeJob.materials.map((m) => {
-                        const item = inventory.find((i) => i.id === m.itemId);
-                        if (!item) return null;
-                        return (
-                          <p key={m.itemId}>
-                            {item.name}: {m.qty} {item.unit ?? "pc"} ({formatCurrency(m.qty * item.unitCost)})
-                          </p>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
 
-                {activeJob.additionalMaterials && (
-                  <div className="rounded-lg bg-ink-50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
-                      Additional Materials
-                    </p>
-                    <div className="mt-1 space-y-0.5 text-ink-700">
-                      {activeJob.additionalMaterials.breaker && (
-                        <p>Breaker: {activeJob.additionalMaterials.breaker}</p>
-                      )}
-                      {activeJob.additionalMaterials.pvc && (
-                        <p>PVC: {activeJob.additionalMaterials.pvc}</p>
-                      )}
-                      {activeJob.additionalMaterials.others && (
-                        <p>Others: {activeJob.additionalMaterials.others}</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {activeJob.additionalCost != null && (
-                  <div className="rounded-lg bg-ink-50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
-                      Additional Cost
-                    </p>
-                    <div className="mt-1 space-y-0.5 text-ink-700">
-                      <p>{formatCurrency(activeJob.additionalCost)}{activeJob.additionalCostNote ? ` — ${activeJob.additionalCostNote}` : ""}</p>
-                    </div>
-                  </div>
-                )}
-
-                {expenses.filter((e) => e.jobId === activeJob.id).length > 0 && (
-                  <div className="rounded-lg bg-ink-50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
-                      Linked Expenses
-                    </p>
-                    <div className="mt-1 space-y-0.5 text-ink-700">
-                      {expenses.filter((e) => e.jobId === activeJob.id).map((e) => (
-                        <p key={e.id}>{e.category}: {formatCurrency(e.amount)}{e.notes ? ` — ${e.notes}` : ""}</p>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <JobProductsAndMaterials
+                  job={activeJob}
+                  clients={clients}
+                  inventory={inventory}
+                  inventoryCategories={inventoryCategories}
+                  expenses={expenses}
+                />
 
                 <div>
                   <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">

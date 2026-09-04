@@ -63,7 +63,18 @@ export interface ServiceRecord {
 
 export type ClientStatus = "active" | "lead" | "inactive" | "archived";
 
-export type ClientSource = "GMIC" | "Imperial" | "MegaSaver" | "Alfamart";
+// Source is a free-form id resolved against SourceDefinition[] at runtime — same
+// "managed list" convention as BrandDefinition, so sources can be added/renamed/
+// archived from a dialog without touching this type.
+export type ClientSource = string;
+
+export type SourceStatus = "active" | "archived";
+
+export interface SourceDefinition {
+  id: string;
+  name: string;
+  status: SourceStatus;
+}
 
 // ---------- Project Pipeline ----------
 // Unified status spanning a client's full lifecycle, from first inquiry through
@@ -473,6 +484,7 @@ export type AuditModule =
   | "inventory"
   | "inventoryCategory"
   | "brand"
+  | "source"
   | "purchaseBatch"
   | "serviceCatalog"
   | "invoice"

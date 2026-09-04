@@ -56,6 +56,7 @@ import { RestrictedField } from "@/components/shared/restricted-field";
 import { FileDropZone } from "@/components/shared/file-drop-zone";
 import { SurveyPhotoGrid } from "@/components/shared/survey-photos";
 import { JobNotesPanel } from "@/components/schedule/job-notes";
+import { JobProductsAndMaterials } from "@/components/schedule/job-detail-sections";
 import { FilterTransition } from "@/components/shared/filter-transition";
 import { Pagination } from "@/components/shared/pagination";
 import { usePagination } from "@/lib/use-pagination";
@@ -149,6 +150,7 @@ export default function MyJobs() {
   const {
     schedule,
     leads,
+    clients,
     updateJob,
     updateJobStatus,
     logAdditionalMaterials,
@@ -904,67 +906,13 @@ export default function MyJobs() {
                   </p>
                 </div>
 
-                {activeJob.materials && activeJob.materials.length > 0 && (
-                  <div className="rounded-lg bg-ink-50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
-                      Materials Used
-                    </p>
-                    <div className="mt-1 space-y-0.5 text-ink-700">
-                      {activeJob.materials.map((m) => {
-                        const item = inventory.find((i) => i.id === m.itemId);
-                        if (!item) return null;
-                        return (
-                          <p key={m.itemId}>
-                            {item.name}: {m.qty} {item.unit ?? "pc"} ({formatCurrency(m.qty * item.unitCost)})
-                          </p>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {activeJob.additionalMaterials && (
-                  <div className="rounded-lg bg-ink-50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
-                      Additional Materials
-                    </p>
-                    <div className="mt-1 space-y-0.5 text-ink-700">
-                      {activeJob.additionalMaterials.breaker && (
-                        <p>Breaker: {activeJob.additionalMaterials.breaker}</p>
-                      )}
-                      {activeJob.additionalMaterials.pvc && (
-                        <p>PVC: {activeJob.additionalMaterials.pvc}</p>
-                      )}
-                      {activeJob.additionalMaterials.others && (
-                        <p>Others: {activeJob.additionalMaterials.others}</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {activeJob.additionalCost != null && (
-                  <div className="rounded-lg bg-ink-50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
-                      Additional Cost
-                    </p>
-                    <div className="mt-1 space-y-0.5 text-ink-700">
-                      <p>{formatCurrency(activeJob.additionalCost)}{activeJob.additionalCostNote ? ` — ${activeJob.additionalCostNote}` : ""}</p>
-                    </div>
-                  </div>
-                )}
-
-                {expenses.filter((e) => e.jobId === activeJob.id).length > 0 && (
-                  <div className="rounded-lg bg-ink-50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
-                      Linked Expenses
-                    </p>
-                    <div className="mt-1 space-y-0.5 text-ink-700">
-                      {expenses.filter((e) => e.jobId === activeJob.id).map((e) => (
-                        <p key={e.id}>{e.category}: {formatCurrency(e.amount)}{e.notes ? ` — ${e.notes}` : ""}</p>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <JobProductsAndMaterials
+                  job={activeJob}
+                  clients={clients}
+                  inventory={inventory}
+                  inventoryCategories={inventoryCategories}
+                  expenses={expenses}
+                />
 
                 {relatedSurvey && (
                   <div className="rounded-lg border border-brand-cyan-500/30 bg-brand-cyan-500/5 p-3">
@@ -1341,30 +1289,6 @@ export default function MyJobs() {
                   })}
                 </div>
               )}
-            </div>
-            <div className="space-y-1.5">
-              <Label>Breaker</Label>
-              <Input
-                value={materialsForm.breaker}
-                onChange={(e) => setMaterialsForm({ ...materialsForm, breaker: e.target.value })}
-                placeholder="e.g. 20A x1"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>PVC</Label>
-              <Input
-                value={materialsForm.pvc}
-                onChange={(e) => setMaterialsForm({ ...materialsForm, pvc: e.target.value })}
-                placeholder="e.g. 2 pcs 1/2 in"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Others</Label>
-              <Input
-                value={materialsForm.others}
-                onChange={(e) => setMaterialsForm({ ...materialsForm, others: e.target.value })}
-                placeholder="Anything else used"
-              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">

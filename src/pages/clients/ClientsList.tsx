@@ -13,6 +13,7 @@ import {
   Users,
   FileUp,
   Wallet,
+  Settings2,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card } from "@/components/ui/card";
@@ -82,13 +83,6 @@ import type {
   Unit,
   PaymentMethod,
 } from "@/types";
-
-const clientSourceOptions: ClientSource[] = [
-  "GMIC",
-  "Imperial",
-  "MegaSaver",
-  "Alfamart",
-];
 
 const CLIENT_CSV_HEADERS = [
   "name",
@@ -183,6 +177,11 @@ export default function ClientsList() {
     restoreClient,
     auditLog,
     brands,
+    sources,
+    addSource,
+    updateSource,
+    archiveSource,
+    restoreSource,
     pipelineStages,
     serviceCatalog,
     inventory,
@@ -190,6 +189,7 @@ export default function ClientsList() {
     markSerializedUnitInstalled,
     recordBulkPayment,
   } = useCrmStore();
+  const activeSources = useMemo(() => sources.filter((s) => s.status === "active"), [sources]);
   const activeServiceCatalog = useMemo(
     () => serviceCatalog.filter((s) => (s.status ?? "active") === "active"),
     [serviceCatalog],
@@ -201,10 +201,14 @@ export default function ClientsList() {
   );
   const [source, setSource] = useState<ClientSource | "all">("all");
   const sourceFilters = useMemo(
-    () => ["all", ...clientSourceOptions] as (ClientSource | "all")[],
-    [],
+    () => ["all", ...activeSources.map((s) => s.name)] as (ClientSource | "all")[],
+    [activeSources],
   );
   const [bulkPaymentMode, setBulkPaymentMode] = useState(false);
+  const [sourceManagerOpen, setSourceManagerOpen] = useState(false);
+  const [newSourceName, setNewSourceName] = useState("");
+  const [sourceEditId, setSourceEditId] = useState<string | null>(null);
+  const [sourceEditName, setSourceEditName] = useState("");
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
   const [bulkAmounts, setBulkAmounts] = useState<Record<string, string>>({});
   const [bulkPayOpen, setBulkPayOpen] = useState(false);
@@ -353,6 +357,18 @@ export default function ClientsList() {
     () => clients.filter((c) => selectedClientIds.has(c.id) && c.balance > 0),
     [clients, selectedClientIds],
   );
+
+  function openSourceManager() {
+    setNewSourceName("");
+    setSourceEditId(null);
+    setSourceManagerOpen(true);
+  }
+
+  function saveSourceRename(id: string) {
+    if (!sourceEditName.trim()) return;
+    updateSource(id, { name: sourceEditName.trim() });
+    setSourceEditId(null);
+  }
 
   function openBulkPayment() {
     const amounts: Record<string, string> = {};
@@ -544,6 +560,9 @@ export default function ClientsList() {
         description="Every client and their unit history, in one place."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={openSourceManager}>
+              <Settings2 className="h-4 w-4" /> Manage Source
+            </Button>
             <Button
               variant={bulkPaymentMode ? "brand" : "outline"}
               onClick={() => {
@@ -628,9 +647,9 @@ export default function ClientsList() {
                         <SelectValue placeholder="Nothing Specified" />
                       </SelectTrigger>
                       <SelectContent>
-                        {clientSourceOptions.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option}
+                        {activeSources.map((option) => (
+                          <SelectItem key={option.id} value={option.name}>
+                            {option.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1575,6 +1594,74 @@ export default function ClientsList() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setBulkPayOpen(false)}>Cancel</Button>
             <Button variant="brand" onClick={handleBulkPayment}>Record Payment</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={sourceManagerOpen} onOpenChange={setSourceManagerOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manage sources</DialogTitle>
+            <DialogDescription>Rename, add, or archive sources. Archiving is blocked while an active client still uses one.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {sources.map((src) => (
+              <div key={src.id} className="flex items-center gap-2 rounded-lg border border-ink-100 p-2">
+                {sourceEditId === src.id ? (
+                  <Input
+                    autoFocus
+                    value={sourceEditName}
+                    onChange={(e) => setSourceEditName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && saveSourceRename(src.id)}
+                    className="flex-1"
+                  />
+                ) : (
+                  <span className="flex-1 text-sm text-ink-700">
+                    {src.name}
+                    {src.status === "archived" && <span className="ml-1.5 text-xs text-ink-400">(archived)</span>}
+                  </span>
+                )}
+                {sourceEditId === src.id ? (
+                  <Button size="sm" variant="outline" onClick={() => saveSourceRename(src.id)}>Save</Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setSourceEditId(src.id);
+                      setSourceEditName(src.name);
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {src.status === "archived" ? (
+                  <Button size="sm" variant="ghost" className="text-brand-green-600" onClick={() => restoreSource(src.id)}>
+                    <ArchiveRestore className="h-3.5 w-3.5" />
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="ghost" className="text-ink-500" onClick={() => archiveSource(src.id)}>
+                    <Archive className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 pt-2">
+            <Input value={newSourceName} onChange={(e) => setNewSourceName(e.target.value)} placeholder="New source name" />
+            <Button
+              variant="outline"
+              disabled={!newSourceName.trim()}
+              onClick={() => {
+                addSource({ name: newSourceName.trim() });
+                setNewSourceName("");
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSourceManagerOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

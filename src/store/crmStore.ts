@@ -7,6 +7,7 @@ import type {
   InventoryItem,
   InventoryCategoryDefinition,
   BrandDefinition,
+  SourceDefinition,
   PurchaseBatch,
   PurchaseBatchLine,
   ScheduleJob,
@@ -39,6 +40,7 @@ import { mockInventory } from "@/data/inventory";
 import { mockInventoryCategories } from "@/data/inventoryCategories";
 import { mockPipelineStages } from "@/data/pipelineStages";
 import { mockBrands } from "@/data/brands";
+import { mockSources } from "@/data/sources";
 import { mockPurchaseBatches } from "@/data/purchaseBatches";
 import { mockSchedule } from "@/data/schedule";
 import { mockInvoices } from "@/data/invoices";
@@ -139,6 +141,7 @@ interface CrmState {
   inventory: InventoryItem[];
   inventoryCategories: InventoryCategoryDefinition[];
   brands: BrandDefinition[];
+  sources: SourceDefinition[];
   purchaseBatches: PurchaseBatch[];
   schedule: ScheduleJob[];
   invoices: Invoice[];
@@ -214,6 +217,12 @@ interface CrmState {
   updateBrand: (id: string, updates: Partial<Pick<BrandDefinition, "name">>) => void;
   archiveBrand: (id: string) => boolean;
   restoreBrand: (id: string) => void;
+
+  // Sources
+  addSource: (input: { name: string }) => string;
+  updateSource: (id: string, updates: Partial<Pick<SourceDefinition, "name">>) => void;
+  archiveSource: (id: string) => boolean;
+  restoreSource: (id: string) => void;
 
   // Purchase Batches
   addPurchaseBatch: (input: { supplier: string; lines: Omit<PurchaseBatchLine, "id">[] }) => string;
@@ -309,6 +318,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   inventory: mockInventory,
   inventoryCategories: mockInventoryCategories,
   brands: mockBrands,
+  sources: mockSources,
   purchaseBatches: mockPurchaseBatches,
   schedule: mockSchedule,
   invoices: mockInvoices,
@@ -830,6 +840,43 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     if (!brand) return;
     set((s) => ({ brands: s.brands.map((b) => (b.id === id ? { ...b, status: "active" } : b)) }));
     get().logAudit({ module: "brand", entityId: id, entityLabel: brand.name, action: "restore", changes: [], actor: "You" });
+  },
+
+  addSource: ({ name }) => {
+    const id = nextId("source");
+    const newSource: SourceDefinition = { id, name, status: "active" };
+    set((s) => ({ sources: [...s.sources, newSource] }));
+    get().logAudit({ module: "source", entityId: id, entityLabel: name, action: "create", changes: [], actor: "You" });
+    return id;
+  },
+
+  updateSource: (id, updates) => {
+    const before = get().sources.find((s) => s.id === id);
+    set((s) => ({ sources: s.sources.map((src) => (src.id === id ? { ...src, ...updates } : src)) }));
+    const after = get().sources.find((s) => s.id === id);
+    if (before && after) {
+      const changes = computeFieldDiff(before, after, ["name"]);
+      get().logAudit({ module: "source", entityId: id, entityLabel: after.name, action: "update", changes, actor: "You" });
+    }
+  },
+
+  // Archiving is blocked while any non-archived client still uses this
+  // source, so clients can't silently lose their source.
+  archiveSource: (id) => {
+    const source = get().sources.find((s) => s.id === id);
+    if (!source) return false;
+    const inUse = get().clients.some((c) => c.source === source.name && c.status !== "archived");
+    if (inUse) return false;
+    set((s) => ({ sources: s.sources.map((src) => (src.id === id ? { ...src, status: "archived" } : src)) }));
+    get().logAudit({ module: "source", entityId: id, entityLabel: source.name, action: "archive", changes: [], actor: "You" });
+    return true;
+  },
+
+  restoreSource: (id) => {
+    const source = get().sources.find((s) => s.id === id);
+    if (!source) return;
+    set((s) => ({ sources: s.sources.map((src) => (src.id === id ? { ...src, status: "active" } : src)) }));
+    get().logAudit({ module: "source", entityId: id, entityLabel: source.name, action: "restore", changes: [], actor: "You" });
   },
 
   // Batches are entered as already-received deliveries — stock is added
